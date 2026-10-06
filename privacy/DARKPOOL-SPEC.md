@@ -188,7 +188,7 @@ Rules:
   vault is observed, and offer `fill(o)` for a funded, codeless vault (§3.3).
 - `vaultCount` increments on creation. No other state.
 
-### 1.3 Interfaces to add to `contracts/src/interfaces/IGrove.sol`
+### 1.3 Interfaces in `contracts/src/interfaces/IDarkPool.sol` (never in `IGrove.sol`: the deployed contracts import it, so any change breaks their verified source match)
 
 ```solidity
 interface ILaunchpadFull is ILaunchpad { function sell(address coin, uint256 tokensIn, uint256 minBnbOut) external returns (uint256); function roots() external view returns (address); }
