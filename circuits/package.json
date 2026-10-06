@@ -1,0 +1,25 @@
+{
+  "name": "circuits",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "build": "bash scripts/setup.sh",
+    "test": "node --test --test-force-exit test/zk.test.mjs",
+    "fixtures": "node scripts/fixtures.mjs",
+    "verify": "bash scripts/verify-artifacts.sh"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "description": "zkBNB join-split circuit, ceremony artifacts and zk client library",
+  "dependencies": {
+    "@noble/ciphers": "^1.3.0",
+    "@noble/curves": "^1.9.7",
+    "circom2": "^0.2.23",
+    "circomlib": "^2.0.5",
+    "circomlibjs": "^0.1.7",
+    "ethers": "^6.17.0",
+    "ffjavascript": "^0.3.1",
+    "snarkjs": "^0.7.6"
+  }
+}

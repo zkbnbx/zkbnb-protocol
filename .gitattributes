@@ -1,0 +1,6 @@
+# Keep LF everywhere: the ceremony hashes in circuits/build/CEREMONY-HASHES.txt
+# are over the LF bytes of verification_key.json and Groth16Verifier.sol.
+* text=auto eol=lf
+*.wasm binary
+*.zkey binary
+*.ptau binary

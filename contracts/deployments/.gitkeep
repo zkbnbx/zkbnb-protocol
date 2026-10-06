@@ -1,0 +1,1 @@
+# forge script simulations write deployments/<chainId>.json even without --broadcast; only 97 and 31337 are real

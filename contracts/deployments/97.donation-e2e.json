@@ -1,0 +1,8 @@
+{
+  "causeA": 3,
+  "causeB": 4,
+  "coin": "0xDb70fc54653F400Ee92d410125B273261F2ed501",
+  "minEpoch": 3600,
+  "payee": "0xD51120D3caf9E9BaB75Cbf6013eEF9B4211C286a",
+  "ringId": 1
+}

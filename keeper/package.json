@@ -1,0 +1,39 @@
+{
+  "name": "grove-keeper",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Grove keeper: fee sweeps, holder-reward snapshots, donation rotation, rootstock buybacks and the Rings feed.",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "grove-keeper": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "check:anvil": "tsx scripts/anvil-merkle-check.ts",
+    "keeper": "tsx src/index.ts",
+    "sweep": "tsx src/index.ts sweep",
+    "rewards": "tsx src/index.ts rewards",
+    "rotate": "tsx src/index.ts rotate",
+    "buyback": "tsx src/index.ts buyback",
+    "feed": "tsx src/index.ts feed",
+    "all": "tsx src/index.ts all",
+    "start": "node dist/index.js all"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@vercel/blob": "^0.27.0",
+    "dotenv": "^16.4.5",
+    "viem": "^2.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
