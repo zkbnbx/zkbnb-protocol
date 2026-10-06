@@ -175,8 +175,8 @@ one contributor destroyed their randomness.
 
 ## 6. Deployed mainnet addresses (chain 56)
 
-From `contracts/deployments/56.json`. Start block 125962928. The 8 source contracts are verified
-on Sourcify. PoseidonT3/T4 are raw circomlibjs bytecode.
+From `contracts/deployments/56.json`. Start block 125962928. The 8 source contracts and the two dark-pool contracts are verified
+on Sourcify (exact match). PoseidonT3/T4 are raw circomlibjs bytecode.
 
 | Contract | Address |
 |---|---|
@@ -191,6 +191,8 @@ on Sourcify. PoseidonT3/T4 are raw circomlibjs bytecode.
 | PoseidonT3 | `0x5B171B64FC477Ed39E3b889C0e68368fc3324eF6` |
 | PoseidonT4 | `0xB1FE38E856aDEEdc4Da1b4DbFf7bc38DfbF2685a` |
 | `$ZKBNB` (Flap token, external) | `0xe3E96140f464196440959439CA42F01F986a7777` |
+| DarkPool (dark pools, deployed 2026-10-06) | `0xade2c2E6F0edB8bc8d19ECc7BBcA466A9f60e3AF` |
+| DarkVault implementation (cloned per order) | `0x6cbf0C7478956FB738E8129e960Ff4eEf4383605` |
 | Owner / treasury (Safe) | `0x4D55C01c968Af4292dAcED876c4113dcFE20179f` |
 
 Proving key: `transaction.zkey`, 11.9 MB, sha256

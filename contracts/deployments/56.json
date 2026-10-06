@@ -1,5 +1,7 @@
 {
   "chainId": 56,
+  "darkPool": "0xade2c2E6F0edB8bc8d19ECc7BBcA466A9f60e3AF",
+  "darkVaultImpl": "0x6cbf0C7478956FB738E8129e960Ff4eEf4383605",
   "donationRotator": "0xB33b779c83e910fCdAC34EA4474e0B99CA3aA580",
   "feeRouter": "0xd480Fba1Fe8014529F66a0aAf9A6abb9FbEE1748",
   "grove": "0xe3E96140f464196440959439CA42F01F986a7777",
