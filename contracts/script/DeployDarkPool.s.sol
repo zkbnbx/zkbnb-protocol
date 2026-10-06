@@ -3,7 +3,7 @@ pragma solidity ^0.8.26;
 
 import {Script, console2} from "forge-std/Script.sol";
 import {DarkPool} from "../src/DarkPool.sol";
-import {ILaunchpadFull} from "../src/interfaces/IGrove.sol";
+import {ILaunchpadFull} from "../src/interfaces/IDarkPool.sol";
 
 /// @notice Adds dark pools to a chain whose stack is already deployed (56, 97): reads `launchpad`,
 ///         `shieldedPool` and `router` from deployments/<chainid>.json, deploys the DarkPool factory

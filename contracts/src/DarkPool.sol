@@ -5,7 +5,7 @@ import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {ShieldedPool} from "./ShieldedPool.sol";
 import {DarkVault} from "./DarkVault.sol";
-import {ILaunchpadFull} from "./interfaces/IGrove.sol";
+import {ILaunchpadFull} from "./interfaces/IDarkPool.sol";
 
 /// @title DarkPool
 /// @notice Factory for counterfactual DarkVaults (privacy/DARKPOOL-SPEC.md §1.2). An order fixes

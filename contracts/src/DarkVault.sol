@@ -7,7 +7,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IPancakeRouter02} from "./interfaces/IPancake.sol";
-import {ILaunchpadFull, IShieldedPoolFull, IRootsHarvest} from "./interfaces/IGrove.sol";
+import {ILaunchpadFull, IShieldedPoolFull, IRootsHarvest} from "./interfaces/IDarkPool.sol";
 
 /// @title DarkVault
 /// @notice A one-off position vault for a dark-pool order (privacy/DARKPOOL-SPEC.md §1.1). The
