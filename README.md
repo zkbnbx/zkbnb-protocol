@@ -1,15 +1,32 @@
 # zkBNB protocol
 
+**Dark pools are coming to zkBNB:** trade any zkBNB coin without your wallet appearing on the
+trade. They are in development and not deployed yet. See [Coming next: dark pools](#coming-next-dark-pools).
+
 zkBNB is a coin launchpad on BNB Smart Chain. Anyone can plant a coin. It trades on a bonding
 curve paired to BNB and graduates to PancakeSwap V2 with the LP burned. Every trade pays a 2% fee
 that is split on-chain: 0.50% to the coin's roots vault (holders burn coins to harvest it), 0.50%
 to buy and burn $ZKBNB, 0.20% to the operator and 0.80% to the deployer's choice (the deployer, another
-wallet, holders, or a donation ring). Harvests, holder rewards and donations can be paid as
-private notes in a Groth16 shielded BNB pool. The pool also lets anyone shield, unshield and
-privately transfer BNB.
+wallet, holders, or a donation ring). Payouts can settle privately through a zero-knowledge
+settlement layer, the same layer the dark pools will trade through.
 
 This repository holds the contracts, the circuit with its ceremony transcript, and the keeper.
 The full design is in [SPEC.md](SPEC.md). The web app is not part of this repository.
+
+## Coming next: dark pools
+
+A dark pool lets you buy, sell and harvest a zkBNB coin, on the bonding curve or on its PancakeSwap
+pair after graduation, without your wallet ever appearing on the trade. A relayer submits the
+transaction; the trade executes from a one-off vault address that is fixed by the order itself, so
+nobody can change the coin, amount, slippage or recipient after you sign it. Proceeds settle back
+into the private settlement layer.
+
+- **Status:** in development. Not deployed, not audited. It will be audited before it holds any funds
+  on mainnet, and its code will be published here.
+- **What stays public:** that a trade happened, which coin, the BNB amount and the vault address. What
+  is hidden is who traded.
+- **What it reuses:** the live settlement layer below and its anonymity set. No new circuit and no new
+  trusted setup.
 
 ## Repository layout
 
@@ -34,9 +51,9 @@ keeper/                     off-chain worker: fee sweeps, buybacks, ring rotatio
                             holder-reward snapshots, Rings feed (TypeScript, viem)
 ```
 
-## Shielded pool design
+## Settlement layer (ShieldedPool)
 
-There is one `ShieldedPool` for the whole protocol. Every coin and every kind of payout uses it:
+The settlement layer is live on mainnet; dark pools will run on top of it. There is one `ShieldedPool` for the whole protocol. Every coin and every kind of payout uses it:
 roots harvests, holder-reward claims, donation-ring payouts, and direct shield / unshield /
 private transfers. The pool holds only BNB, so all notes look alike. One pool means one anonymity
 set; a pool per coin or per payout type would split users into small sets that are easy to link.
