@@ -74,3 +74,17 @@ interface ILaunchpad {
     function isGraduated(address coin) external view returns (bool);
     function pairOf(address coin) external view returns (address);
 }
+
+/// Dark pools (SPEC §3.9 / privacy/DARKPOOL-SPEC.md §1.3): what a DarkVault needs beyond ILaunchpad.
+interface ILaunchpadFull is ILaunchpad {
+    function sell(address coin, uint256 tokensIn, uint256 minBnbOut) external returns (uint256);
+    function roots() external view returns (address);
+}
+
+interface IShieldedPoolFull is IShieldedPool {
+    /* depositFor already there */
+}
+
+interface IRootsHarvest {
+    function harvest(address coin, uint256 tokens, uint256 minBnb) external returns (uint256 bnb);
+}

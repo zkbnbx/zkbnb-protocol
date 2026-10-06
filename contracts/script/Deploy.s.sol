@@ -10,6 +10,7 @@ import {HolderRewards} from "../src/HolderRewards.sol";
 import {DonationRotator} from "../src/DonationRotator.sol";
 import {Launchpad} from "../src/Launchpad.sol";
 import {FlapBuyback} from "../src/FlapBuyback.sol";
+import {DarkPool} from "../src/DarkPool.sol";
 
 /// @notice Shared deployment logic (SPEC §7 order). `Deploy` uses the real PancakeSwap router,
 ///         `DeployLocal` (script/DeployLocal.s.sol) deploys the mocks first.
@@ -26,6 +27,8 @@ abstract contract DeployBase is Script {
         address launchpad;
         address grove;
         address rootstockBuyback; // FlapBuyback when the rootstock lives on Flap, else zero
+        address darkPool;
+        address darkVaultImpl;
         address router;
         address treasury;
         uint256 startBlock;
@@ -107,6 +110,10 @@ abstract contract DeployBase is Script {
         rotator.setFeeRouter(address(feeRouter));
         launchpad.setRoots(address(roots));
 
+        // dark pools: the vault implementation snapshots launchpad.roots(), so only after setRoots.
+        // DarkPool's constructor deploys the DarkVault implementation bound to itself.
+        (d.darkPool, d.darkVaultImpl) = _deployDarkPool(address(pool), address(launchpad), router);
+
         if (flapToken != address(0)) {
             // rootstock: $ZKBNB launched on Flap (Tax Token V3 paired to ZEC)
             require(block.chainid == 56, "FLAP_TOKEN: BNB mainnet only");
@@ -149,6 +156,17 @@ abstract contract DeployBase is Script {
         }
     }
 
+    /// @dev Deploys the DarkPool factory (which deploys its DarkVault implementation). Must be called
+    ///      inside startBroadcast/stopBroadcast, after `launchpad.setRoots`. No owner, nothing to wire.
+    function _deployDarkPool(address pool, address launchpad, address router)
+        internal
+        returns (address darkPool, address darkVaultImpl)
+    {
+        DarkPool dp = new DarkPool(pool, launchpad, router);
+        darkPool = address(dp);
+        darkVaultImpl = dp.vaultImpl();
+    }
+
     function _writeDeployment(Deployment memory d, string memory file) internal {
         string memory obj = "deployment";
         vm.serializeUint(obj, "chainId", block.chainid);
@@ -166,6 +184,8 @@ abstract contract DeployBase is Script {
             vm.serializeAddress(obj, "rootstockBuyback", d.rootstockBuyback);
             vm.serializeBool(obj, "rootstockExternal", true);
         }
+        vm.serializeAddress(obj, "darkPool", d.darkPool);
+        vm.serializeAddress(obj, "darkVaultImpl", d.darkVaultImpl);
         vm.serializeAddress(obj, "router", d.router);
         vm.serializeAddress(obj, "treasury", d.treasury);
         string memory json = vm.serializeUint(obj, "startBlock", d.startBlock);
@@ -186,6 +206,8 @@ abstract contract DeployBase is Script {
         console2.log("launchpad       ", d.launchpad);
         console2.log("grove           ", d.grove);
         if (d.rootstockBuyback != address(0)) console2.log("rootstockBuyback", d.rootstockBuyback);
+        console2.log("darkPool        ", d.darkPool);
+        console2.log("darkVaultImpl   ", d.darkVaultImpl);
         console2.log("router          ", d.router);
         console2.log("treasury        ", d.treasury);
         console2.log("startBlock      ", d.startBlock);

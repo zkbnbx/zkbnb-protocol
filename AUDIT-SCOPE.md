@@ -23,8 +23,19 @@ zkBNB is a token launchpad on BNB Smart Chain (chain 56). It is live on mainnet.
 - `HolderRewards`: Merkle distributor. The keeper posts a snapshot root per run.
 - `DonationRotator`: causes and rings. Each epoch a ring's pot is paid to the next cause as a
   shielded note (or to its fallback wallet).
+- **Dark pools** (`DarkPool`, `DarkVault`, added 2026-10-06): trade a coin from inside the shielded
+  pool without a wallet on the trade. An order (coin, BNB, min tokens, a fresh owner key, deadline,
+  nonce) fixes a counterfactual vault address (CREATE2 clone of `DarkVault`, salt = hash of the
+  order). A pool withdrawal pays that address; `DarkPool.transactAndFill` does the withdrawal and
+  the buy in one transaction, creating the vault. The vault then only acts on its owner key, via an
+  EIP-712 `relay` meta-transaction submitted by a relayer, and pays sells, harvests and leftover BNB
+  back into the pool through `depositFor`. Neither contract has an admin. The owner key is derived
+  from the user's shielded key in the browser (`keccak256(privkey, "zkBNB dark vault v1", index)`).
 
-Design reference: `SPEC.md`. Internal review: `contracts/SECURITY-REVIEW.md`.
+Design reference: `SPEC.md` (§3.9 for dark pools) and `privacy/DARKPOOL-SPEC.md`. Internal review:
+`contracts/SECURITY-REVIEW.md`; the dark-pool contracts had three internal adversarial passes
+(fund safety, relayer/web binding, privacy claims) whose confirmed findings are fixed and
+regression-tested in `contracts/test/DarkPool.t.sol` (review and integration rounds).
 Ceremony: `circuits/CEREMONY.md`, `circuits/build/CEREMONY-HASHES.txt`.
 
 ## 2. In scope
@@ -44,10 +55,12 @@ nSLOC = non-blank, non-comment lines, measured on the files in this repository.
 | `GroveCoin.sol` | 91 | ERC-20 coin, 2% pair-tax after graduation, `sweepTax` |
 | `Roots.sol` | 76 | Per-coin BNB vault, burn-to-harvest (public or shielded), cap overflow |
 | `MerkleTreeWithHistory.sol` | 70 | Incremental Poseidon tree, depth 20, 100-root history |
-| `interfaces/IGrove.sol` | 63 | Internal interfaces and the `PayoutMode` enum |
+| `interfaces/IGrove.sol` | 68 | Internal interfaces and the `PayoutMode` enum (+ `ILaunchpadFull`, `IShieldedPoolFull`, `IRootsHarvest` for the dark pool) |
 | `interfaces/IFlap.sol` | 59 | Flap Portal, PancakeSwap V3 router, `IRootstockBuyback` |
 | `interfaces/IPancake.sol` | 42 | PancakeSwap V2 router, factory, pair, WBNB |
-| **Hand-written Solidity** | **1,583** | |
+| `DarkVault.sol` | 182 | **Dark pools, added 2026-10-06.** Per-order position vault (EIP-1167 clone): `buyFromFactory`, owner path `buy` / `sell` / `harvest` / `shield` / `exec`, EIP-712 `relay(data, fee, deadline, sig)` meta-transaction whose signature names its submitter, proceeds back into `ShieldedPool.depositFor` minus the relay fee |
+| `DarkPool.sol` | 88 | **Dark pools, added 2026-10-06.** Counterfactual vault factory: `vaultFor(order)` = CREATE2 clone address with salt `keccak256(abi.encode(order))`, lenient `fill(order)` (vault always created once funded; empty revert data = out-of-gas = fatal), strict `transactAndFill(proof, extData, order)` (pool withdrawal to the vault + buy, everything or nothing) |
+| **Hand-written Solidity** | **1,858** | |
 | `Groth16Verifier.sol` | 118 | **Generated** by snarkjs 0.7.6 from the ceremony zkey. Review the wiring, not the template |
 | `poseidon/PoseidonT3.bin`, `PoseidonT4.bin` | n/a | **Generated** EVM bytecode (circomlibjs `poseidonContract.createCode(2/3)`). No Solidity source |
 
@@ -75,11 +88,11 @@ the contracts are correct, so it is in scope.
 
 | Part | nSLOC |
 |---|---:|
-| Solidity, hand-written | 1,583 |
+| Solidity, hand-written | 1,858 |
 | Solidity, generated verifier | 118 |
 | Circom | 129 |
 | JavaScript client library | 406 |
-| **Total** | **2,236** |
+| **Total** | **2,511** |
 
 ## 3. Out of scope
 
@@ -88,7 +101,11 @@ the contracts are correct, so it is in scope.
   (`HolderRewards.postRun`, uncapped `sweepTax` and `buybackAndBurn`). Those powers are in scope.
 - OpenZeppelin Contracts 5.1.0, forge-std 1.17.0, circomlib, snarkjs, circomlibjs, noble.
 - PancakeSwap, Flap and Binance-Peg ZEC contracts themselves. Our use of them is in scope.
-- Tests, mocks and deploy scripts (`contracts/test`, `contracts/script`, `circuits/scripts`).
+- Tests, mocks and deploy scripts (`contracts/test`, `contracts/script`, `circuits/scripts`),
+  including `DeployDarkPool.s.sol`.
+- The dark-pool browser code (owner-key derivation, EIP-712 signing, pending-order recovery) and
+  the relayer route live in the web app, outside this repository. Their contract-facing rules are
+  stated in `privacy/DARKPOOL-SPEC.md` §2–§3 for reference.
 - The trusted setup itself. The transcript is public for review, but re-running it is not part of
   this review.
 
@@ -125,6 +142,16 @@ The Safe cannot:
 - Spend pool notes, freeze pool withdrawals (`maxExtAmount` and `maxFee` are constants), or
   block `depositFor`.
 - Upgrade any contract.
+- Touch a dark vault: `DarkPool` and `DarkVault` have no owner or admin. A vault obeys only the
+  owner key named at creation (directly, or through a `relay` signed by it). `Launchpad.setRoots`
+  is the one Safe power that reaches vaults: `DarkVault.harvest` resolves Roots from the Launchpad
+  at call time.
+
+Relayer trust (dark pools): the site relayer submits `transactAndFill` and `relay` calls. It cannot
+change what they do (the order is bound into the vault address, which is bound into `extDataHash`;
+a vault call is bound by the owner's signature, which also names the submitter), but it can decline,
+delay until the deadline, or trade ahead of the user within their slippage like any mempool
+watcher. It learns the order, the client IP and the pubKey proceeds are paid to.
 
 Keeper trust: `HolderRewards.postRun` accepts any Merkle root up to the coin's pot. A malicious
 keeper can pay a Holders-mode pot to itself. Roots and the pool are not reachable. Because the
@@ -233,6 +260,19 @@ In priority order:
    and `pending` paths, public blinding, `withdrawPending`.
 8. **Roots and HolderRewards.** Harvest ratio invariant, cap overflow, Merkle leaf encoding, claim
    window and `sweepExpired` accounting.
+9. **Dark pools.** Can anyone other than the owner key move a vault's BNB or tokens? CREATE2 /
+   clone address binding of the order (every field, including `nonce` and `deadline`), `initialize`
+   once and only by the factory, the implementation locked (`owner = address(1)`), `fill`'s
+   leniency rule (revert with data tolerated, empty revert data fatal: out-of-gas griefing),
+   `transactAndFill` atomicity and its known non-atomic path (a third party submits the bare
+   `transact` first; the BNB then sits at the codeless vault address and `fill(order)` is the only
+   recovery, see the `@dev` note), EIP-712 `relay`: domain per clone, sequential nonce, signature
+   over (data, fee, deadline, nonce, msg.sender), selector denylist (`relay`, `buyFromFactory`,
+   `initialize`), `onlyOwner` self-call branch reachable only inside `relay`, re-entrancy through
+   `exec` targets, `receive()` and the router's fee-on-transfer swaps, fee accounting
+   (`proceeds - _relayFee` into `depositFor`, `FeeExceedsProceeds`, `FeeUnpaid`), the curve vs
+   router branches after graduation with the 2% pair-tax, and whether a vault can ever be left
+   with funds that no signature of the owner key can move.
 
 ## 9. Build and test
 
@@ -246,11 +286,12 @@ forge build
 forge test
 ```
 
-Current result (forge 1.5.1, no fork env): **174 passed, 0 failed, 2 skipped** across 11 suites.
+Current result (forge 1.5.1, no fork env): **204 passed, 0 failed, 2 skipped** across 12 suites.
 
 | Suite | Tests |
 |---|---:|
 | FeeRouter.t.sol | 34 |
+| DarkPool.t.sol (dark pools: spec cases 1–14, review round, integration round) | 30 |
 | Launchpad.t.sol | 25 |
 | FlapBuyback.t.sol | 22 |
 | Security.t.sol | 21 |
