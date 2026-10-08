@@ -38,7 +38,7 @@ command below is rerun with a different result.
 - **Not built** — no code.
 
 "Tested" means tested against **mocks and dev keys in a local EVM / Node**, never against the live chain-56
-contracts (the `PrivacyFork.t.sol` fork suite does not exist yet).
+contracts, except the `PrivacyFork.t.sol` fork suite (section "Contracts"), which runs against a fork of the live chain-56 contracts.
 
 ## Commands run for this file (one at a time)
 
@@ -92,7 +92,7 @@ Sizes from `forge build --sizes` (runtime bytes; limit 24,576): `GrovePool` 11,9
 | `interfaces/IGroveV2.sol` | Built-and-tested | Compiles; used by every contract above. `IGrove.sol` untouched |
 | Verifiers `verifiers/Groth16Verifier{Transfer,Intent,Claim,Open}.sol` | Built-and-tested (**dev keys**) | `PrivacyFixtures.t.sol` `test_everyFixtureProofVerifies` and `test_tamperedPublicInputFails` (run 2). Exported from the dev zkeys; must be re-exported after the ceremony |
 | Invariants (`PrivacyInvariants.t.sol`: BNB solvency, claimable covered, nullifier uniqueness, checkpoint monotonic, relayer paid) | Built-and-tested | 5 passed, 0 failed (run 2), each 256 runs × 128,000 calls, 0 reverts, against `MockVerifierN`. The review should confirm the handlers are not vacuous (0 reverts across 128,000 calls suggests they pre-filter inputs) |
-| Fork test against live chain-56 contracts (`test/fork/PrivacyFork.t.sol`) | Not built | — |
+| Fork test against live chain-56 contracts (`test/fork/PrivacyFork.t.sol`) | Built-and-tested (2026-10-08) | `BSC_FORK_RPC=https://bsc-rpc.publicnode.com forge test --match-path test/fork/PrivacyFork.t.sol`: **6 pass** on a fork of BSC mainnet, fresh stage-2 contracts wired to the live Launchpad / FeeRouter / Roots / HolderRewards / v1 pool from `deployments/56.json`, accept-all verifiers (real proofs: PrivacyFixtures). Covered: BUY, SELL and HARVEST batches on the live curve and Roots; BUY and SELL through the real PancakeSwap V2 router after graduation (fee-on-transfer path); an open with an impossible `minOut` reverts and the epoch stays collecting; RewardPoster with the live HolderRewards after the owner's `setKeeper`; private planting through the live Launchpad; `DeployPrivacy.run()` refuses chain 56 without the ceremony gate. Skipped when BSC_FORK_RPC is unset |
 | Contract security review (per-asset solvency, replay, checkpoint bypass, reentrancy, signal order, affine ElGamal comparison, denomination bypass, vacuous mock tests) | Done (internal, not an audit) | Section "Review": R1–R5 fixed with tests, N1, N2, N4 open |
 
 ### Fixtures (`contracts/test/fixtures/v2/`)
