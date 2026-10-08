@@ -10,10 +10,7 @@ const TTL_MS = 60_000;
 export async function bnbUsd(fallback?: number, fetchImpl: typeof fetch = fetch): Promise<number> {
   if (cached && Date.now() - cached.at < TTL_MS) return cached.value;
   try {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 10_000);
-    const res = await fetchImpl(BINANCE, { signal: ctrl.signal });
-    clearTimeout(t);
+    const res = await fetchImpl(BINANCE, { signal: AbortSignal.timeout(10_000) });
     if (!res.ok) throw new Error(`binance http ${res.status}`);
     const j = (await res.json()) as { price?: string };
     const p = Number(j.price);

@@ -11,10 +11,11 @@ import {DonationRotator} from "../src/DonationRotator.sol";
 import {Launchpad} from "../src/Launchpad.sol";
 import {FlapBuyback} from "../src/FlapBuyback.sol";
 import {DarkPool} from "../src/DarkPool.sol";
+import {PrivacyDeployBase} from "./DeployPrivacy.s.sol";
 
 /// @notice Shared deployment logic (SPEC §7 order). `Deploy` uses the real PancakeSwap router,
 ///         `DeployLocal` (script/DeployLocal.s.sol) deploys the mocks first.
-abstract contract DeployBase is Script {
+abstract contract DeployBase is Script, PrivacyDeployBase {
     struct Deployment {
         address poseidonT3;
         address poseidonT4;
@@ -32,6 +33,8 @@ abstract contract DeployBase is Script {
         address router;
         address treasury;
         uint256 startBlock;
+        // privacy stage 2 (fresh chains other than 56 only; zero otherwise)
+        PrivacyDeployment privacy;
     }
 
     address public constant PANCAKE_ROUTER_BSC = 0x10ED43C718714eb63d5aA57B78B54704E256024E;
@@ -114,6 +117,26 @@ abstract contract DeployBase is Script {
         // DarkPool's constructor deploys the DarkVault implementation bound to itself.
         (d.darkPool, d.darkVaultImpl) = _deployDarkPool(address(pool), address(launchpad), router);
 
+        // privacy stage 2 (privacy/PRIVACY-SPEC.md section 7) on fresh dev / test chains: dev verifiers and, unless
+        // COORDINATOR_PK_X/Y are set, the documented dev Coordinator key. Never on chain 56 (DeployPrivacy.s.sol,
+        // behind the ceremony gate). SKIP_PRIVACY=true deploys the stage-1 stack alone.
+        if (block.chainid != 56 && !vm.envOr("SKIP_PRIVACY", false)) {
+            d.privacy = _deployPrivacyStack(
+                PrivacyInputs({
+                    launchpad: address(launchpad),
+                    feeRouter: address(feeRouter),
+                    roots: address(roots),
+                    holderRewards: address(holderRewards),
+                    shieldedPool: address(pool),
+                    treasury: treasury,
+                    coordinatorPk: _coordinatorPk(true),
+                    claimBudget: _claimBudgetWei(),
+                    deployer: deployer,
+                    owner: owner
+                })
+            );
+        }
+
         if (flapToken != address(0)) {
             // rootstock: $ZKBNB launched on Flap (Tax Token V3 paired to ZEC)
             require(block.chainid == 56, "FLAP_TOKEN: BNB mainnet only");
@@ -188,6 +211,7 @@ abstract contract DeployBase is Script {
         vm.serializeAddress(obj, "darkVaultImpl", d.darkVaultImpl);
         vm.serializeAddress(obj, "router", d.router);
         vm.serializeAddress(obj, "treasury", d.treasury);
+        if (d.privacy.grovePool != address(0)) _serializePrivacy(obj, d.privacy);
         string memory json = vm.serializeUint(obj, "startBlock", d.startBlock);
         vm.createDir("deployments", true);
         vm.writeJson(json, file);
@@ -211,6 +235,7 @@ abstract contract DeployBase is Script {
         console2.log("router          ", d.router);
         console2.log("treasury        ", d.treasury);
         console2.log("startBlock      ", d.startBlock);
+        if (d.privacy.grovePool != address(0)) _logPrivacy(d.privacy);
     }
 }
 

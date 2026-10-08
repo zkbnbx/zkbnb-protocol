@@ -2,7 +2,7 @@ import path from "node:path";
 import { formatEther, getAddress, parseEventLogs, toEventSelector, type AbiEvent, type Address, type Hex } from "viem";
 import { donationRotatorAbi, feedEventsAbi, feeRouterAbi } from "../abis.js";
 import { derivePayouts, sortNewestFirst, PAYOUT_EVENTS, type Payout, type PendingRow } from "../payouts.js";
-import type { Ctx } from "../chain.js";
+import { sameAddr, ZERO, type Ctx } from "../chain.js";
 import { BlockTimestamps, blockAtTimestamp, getLogsChunked } from "../logs.js";
 import { readJson, writeJsonAtomic } from "../state.js";
 import { logger } from "../log.js";
@@ -154,6 +154,22 @@ function stringifyArgs(args: unknown): Record<string, string | boolean | number>
   return out;
 }
 
+/** Decoded logs → FeedEvents, with each block's timestamp from `tsMap`. */
+function toFeedEvents(
+  parsed: readonly { eventName: string; address: Address; blockNumber: bigint | null; transactionHash: Hex | null; logIndex: number | null; args: unknown }[],
+  tsMap: Map<bigint, number>,
+): FeedEvent[] {
+  return parsed.map((p) => ({
+    name: p.eventName,
+    address: getAddress(p.address),
+    block: Number(p.blockNumber),
+    ts: tsMap.get(p.blockNumber!)!,
+    tx: p.transactionHash!,
+    logIndex: p.logIndex!,
+    args: stringifyArgs(p.args),
+  }));
+}
+
 export function feedCachePath(snapshotDir: string): string {
   return path.join(snapshotDir, "cache", "feed-events.json");
 }
@@ -169,7 +185,7 @@ async function scanPayoutEvents(ctx: Ctx, safe: bigint, bts: BlockTimestamps): P
   const { dep, cfg } = ctx;
   const file = payoutCachePath(cfg.snapshotDir);
   const cached = readJson<PayoutCache>(file);
-  const valid = !!cached && cached.chainId === cfg.chainId && cached.rotator.toLowerCase() === dep.donationRotator.toLowerCase();
+  const valid = !!cached && cached.chainId === cfg.chainId && sameAddr(cached.rotator, dep.donationRotator);
   const events: FeedEvent[] = valid ? cached!.events : [];
   const from = valid ? BigInt(cached!.lastBlock) + 1n : BigInt(dep.startBlock);
   if (from <= safe) {
@@ -177,9 +193,7 @@ async function scanPayoutEvents(ctx: Ctx, safe: bigint, bts: BlockTimestamps): P
     await getLogsChunked(ctx, { address: dep.donationRotator, fromBlock: from, toBlock: safe, topics }, async (_f, t, raw) => {
       const parsed = parseEventLogs({ abi: payoutEventsAbi, logs: raw as never, strict: false });
       const tsMap = parsed.length ? await bts.getMany(parsed.map((p) => p.blockNumber!)) : new Map<bigint, number>();
-      for (const p of parsed) {
-        events.push({ name: p.eventName, address: getAddress(p.address), block: Number(p.blockNumber), ts: tsMap.get(p.blockNumber!)!, tx: p.transactionHash!, logIndex: p.logIndex!, args: stringifyArgs(p.args) });
-      }
+      for (const e of toFeedEvents(parsed, tsMap)) events.push(e);
       // persist per chunk so an interrupted first scan resumes where it stopped
       writeJsonAtomic(file, { chainId: cfg.chainId, rotator: dep.donationRotator, lastBlock: Number(t), events } satisfies PayoutCache);
     });
@@ -197,7 +211,7 @@ async function readPayees(ctx: Ctx): Promise<Map<string, string>> {
     const n = await pub.readContract({ address: dep.donationRotator, abi: donationRotatorAbi, functionName: "causeCount" });
     for (let i = 0n; i < n; i++) {
       const c = await pub.readContract({ address: dep.donationRotator, abi: donationRotatorAbi, functionName: "getCause", args: [i] });
-      out.set(i.toString(), getAddress(c.fallbackWallet === "0x0000000000000000000000000000000000000000" ? c.owner : c.fallbackWallet));
+      out.set(i.toString(), getAddress(c.fallbackWallet === ZERO ? c.owner : c.fallbackWallet));
     }
   } catch (e) {
     log.warn("could not read causes; wallet payouts will have no recipient", { err: e });
@@ -232,17 +246,7 @@ export async function feed(ctx: Ctx): Promise<RingsFeed> {
     const raw = await getLogsChunked(ctx, { address: addresses, fromBlock: from, toBlock: safe });
     const parsed = parseEventLogs({ abi: feedEventsAbi, logs: raw as never, strict: false });
     const tsMap = await bts.getMany(parsed.map((p) => p.blockNumber!));
-    for (const p of parsed) {
-      events.push({
-        name: p.eventName,
-        address: getAddress(p.address),
-        block: Number(p.blockNumber),
-        ts: tsMap.get(p.blockNumber!)!,
-        tx: p.transactionHash!,
-        logIndex: p.logIndex!,
-        args: stringifyArgs(p.args),
-      });
-    }
+    for (const e of toFeedEvents(parsed, tsMap)) events.push(e);
     log.info("feed scanned", { fromBlock: from, toBlock: safe, newEvents: parsed.length });
   }
   // keep one day of slack so re-bucketing around midnight is stable

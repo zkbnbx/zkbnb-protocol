@@ -25,6 +25,12 @@ circuits/build/*
 !circuits/build/verification_key.json
 !circuits/build/CEREMONY-HASHES.txt
 !circuits/build/transaction.wasm
+!circuits/build/verification_key_*.json
+!circuits/build/CEREMONY-HASHES-v2.txt
+!circuits/build/transfer.wasm
+!circuits/build/intent.wasm
+!circuits/build/claim.wasm
+!circuits/build/epochOpen.wasm
 
 # keeper runtime
 keeper/dist/

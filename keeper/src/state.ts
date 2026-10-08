@@ -18,19 +18,13 @@ export function statePath(snapshotDir: string): string {
   return path.join(snapshotDir, "state.json");
 }
 
+/** A missing or unreadable state file starts empty. */
 export function loadState(snapshotDir: string): KeeperState {
-  const p = statePath(snapshotDir);
-  if (!fs.existsSync(p)) return emptyState();
-  try {
-    const raw = JSON.parse(fs.readFileSync(p, "utf8")) as Partial<KeeperState>;
-    return { version: 1, scheduled: raw.scheduled ?? {}, lastTx: raw.lastTx ?? {} };
-  } catch {
-    return emptyState();
-  }
+  const raw = readJson<Partial<KeeperState>>(statePath(snapshotDir));
+  return raw ? { version: 1, scheduled: raw.scheduled ?? {}, lastTx: raw.lastTx ?? {} } : emptyState();
 }
 
 export function saveState(snapshotDir: string, s: KeeperState): void {
-  fs.mkdirSync(snapshotDir, { recursive: true });
   writeJsonAtomic(statePath(snapshotDir), s);
 }
 

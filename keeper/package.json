@@ -20,14 +20,24 @@
     "buyback": "tsx src/index.ts buyback",
     "feed": "tsx src/index.ts feed",
     "all": "tsx src/index.ts all",
+    "coordinator": "tsx src/index.ts coordinator",
+    "rotate-key": "tsx src/index.ts rotate-key",
+    "pool-feed": "tsx src/index.ts pool-feed",
+    "dividends": "tsx src/index.ts dividends",
+    "flush": "tsx src/index.ts flush",
+    "relayer": "tsx src/index.ts relayer",
+    "sync:abis": "node scripts/sync-abis.mjs",
     "start": "node dist/index.js all"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
+    "@noble/curves": "^1.9.7",
     "@vercel/blob": "^0.27.0",
     "dotenv": "^16.4.5",
+    "poseidon-lite": "^0.3.0",
+    "snarkjs": "^0.7.6",
     "viem": "^2.21.0"
   },
   "devDependencies": {

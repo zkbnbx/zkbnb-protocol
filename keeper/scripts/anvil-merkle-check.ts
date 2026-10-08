@@ -14,6 +14,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { foundry } from "viem/chains";
 import { holderRewardsAbi } from "../src/abis.js";
 import { allocate } from "../src/allocation.js";
+import { leafHash } from "../src/merkle.js";
 import { buildSnapshot, verifySnapshot } from "../src/snapshot.js";
 
 const rpc = process.argv[2] ?? "http://127.0.0.1:8599";
@@ -52,7 +53,6 @@ async function main() {
   // leaf() on-chain must equal our leafHash
   for (const l of snap.json.leaves) {
     const onchain = await pub.readContract({ address: hr, abi: holderRewardsAbi, functionName: "leaf", args: [coin, runId, l.account, BigInt(l.amount)] });
-    const { leafHash } = await import("../src/merkle.js");
     if (onchain !== leafHash(coin, runId, l.account, BigInt(l.amount))) throw new Error("leaf layout mismatch");
   }
 

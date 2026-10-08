@@ -1,9 +1,11 @@
+import { setTimeout as sleep } from "node:timers/promises";
 import {
   createPublicClient,
   createWalletClient,
   defineChain,
   fallback,
   http,
+  zeroAddress,
   type Abi,
   type Address,
   type Chain,
@@ -72,20 +74,26 @@ export interface TxResult {
 
 const NONCE_ERRORS = [/nonce too low/i, /replacement transaction underpriced/i, /already known/i, /nonce.*(low|high|used)/i, /invalid nonce/i];
 
+/** message + details + shortMessage of an RPC/viem error, for pattern matching on its cause. */
+export function errorText(e: unknown): string {
+  if (!(e instanceof Error)) return String(e);
+  const x = e as { details?: string; shortMessage?: string };
+  return `${e.message}\n${x.details ?? ""}\n${x.shortMessage ?? ""}`;
+}
+
 function isNonceError(e: unknown): boolean {
-  const m = e instanceof Error ? `${e.message}\n${(e as { details?: string }).details ?? ""}` : String(e);
+  const m = errorText(e);
   return NONCE_ERRORS.some((r) => r.test(m));
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** Floor for the gas limit of every keeper transaction (see sendTx). */
+const MIN_GAS_LIMIT = 800_000n;
+const MAX_ATTEMPTS = 4;
 
 /**
  * simulate → (DRY_RUN ? stop : write → wait for receipt). Retries nonce collisions with a fresh
  * pending nonce. Throws if the simulation reverts, so callers can treat "would revert" as skip.
  */
-/** Floor for the gas limit of every keeper transaction (see sendTx). */
-const MIN_GAS_LIMIT = 800_000n;
-
 export async function sendTx<
   const TAbi extends Abi,
   TName extends ContractFunctionName<TAbi, "nonpayable" | "payable">,
@@ -125,8 +133,7 @@ export async function sendTx<
 
   const release = await acquire(ctx);
   try {
-    let lastErr: unknown;
-    for (let attempt = 1; attempt <= 4; attempt++) {
+    for (let attempt = 1; ; attempt++) {
       try {
         const nonce = await pub.getTransactionCount({ address: ctx.account.address, blockTag: "pending" });
         const hash = await ctx.wallet!.writeContract({ ...(sim.request as object), nonce, gas } as never);
@@ -147,16 +154,11 @@ export async function sendTx<
           logs: receipt.logs,
         };
       } catch (e) {
-        lastErr = e;
-        if (isNonceError(e) && attempt < 4) {
-          log.warn(`${params.label}: nonce collision, retrying`, { attempt, err: e });
-          await sleep(1500 * attempt);
-          continue;
-        }
-        throw e;
+        if (!isNonceError(e) || attempt >= MAX_ATTEMPTS) throw e;
+        log.warn(`${params.label}: nonce collision, retrying`, { attempt, err: e });
+        await sleep(1500 * attempt);
       }
     }
-    throw lastErr;
   } finally {
     release();
   }
@@ -170,8 +172,7 @@ async function acquire(ctx: Ctx): Promise<() => void> {
   return release;
 }
 
-/** Address helpers */
-export const ZERO: Address = "0x0000000000000000000000000000000000000000";
+export const ZERO: Address = zeroAddress;
 export const DEAD: Address = "0x000000000000000000000000000000000000dEaD";
 
 export function sameAddr(a: string, b: string): boolean {

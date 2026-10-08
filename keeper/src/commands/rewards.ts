@@ -1,7 +1,7 @@
 import { randomInt } from "node:crypto";
 import { formatEther, getAddress, parseEventLogs, type Address } from "viem";
 import { feeRouterAbi, holderRewardsAbi, launchpadAbi, pairAbi, routerAbi } from "../abis.js";
-import { sendTx, ZERO, DEAD, type Ctx } from "../chain.js";
+import { sameAddr, sendTx, ZERO, DEAD, type Ctx } from "../chain.js";
 import { allocate, minHoldingWei } from "../allocation.js";
 import { eligibleHolders } from "../balances.js";
 import { balancesAt } from "../logs.js";
@@ -9,6 +9,7 @@ import { bnbUsd } from "../price.js";
 import { buildSnapshot, publishSnapshot, verifySnapshot, writeSnapshot } from "../snapshot.js";
 import { loadState, saveState } from "../state.js";
 import { logger } from "../log.js";
+import { applyPrivacyExclusions, hasPrivacyModules, knownStubs } from "../stubs.js";
 
 const log = logger("rewards");
 
@@ -42,7 +43,7 @@ export async function rewards(ctx: Ctx): Promise<RewardsResult> {
 
   if (ctx.account) {
     const keeper = await pub.readContract({ address: dep.holderRewards, abi: holderRewardsAbi, functionName: "keeper" });
-    if (keeper.toLowerCase() !== ctx.account.address.toLowerCase()) {
+    if (!sameAddr(keeper, ctx.account.address)) {
       log.warn("this key is not HolderRewards.keeper; postRun will revert", { keeper, me: ctx.account.address });
     }
   }
@@ -79,6 +80,7 @@ export async function rewards(ctx: Ctx): Promise<RewardsResult> {
           continue;
         }
         const ok = await takeSnapshotAndPost(ctx, coin, pot);
+        state.lastTx = loadState(cfg.snapshotDir).lastTx; // keep the tx record takeSnapshotAndPost just saved
         delete state.scheduled[coin];
         saveState(cfg.snapshotDir, state);
         if (ok) posted++;
@@ -117,10 +119,10 @@ export async function coinPriceWei(ctx: Ctx, coin: Address): Promise<{ price: bi
     pub.readContract({ address: pair, abi: pairAbi, functionName: "getReserves" }),
     pub.readContract({ address: dep.router, abi: routerAbi, functionName: "WETH" }),
   ]);
-  const coinIs0 = token0.toLowerCase() === coin.toLowerCase();
+  const coinIs0 = sameAddr(token0, coin);
   const reserveCoin = coinIs0 ? reserves[0] : reserves[1];
   const reserveWeth = coinIs0 ? reserves[1] : reserves[0];
-  if (token0.toLowerCase() !== weth.toLowerCase() && !coinIs0) throw new Error(`pair ${pair} is not coin/WETH`);
+  if (!sameAddr(token0, weth) && !coinIs0) throw new Error(`pair ${pair} is not coin/WETH`);
   if (reserveCoin === 0n) throw new Error("pair has no coin reserve");
   return { price: (reserveWeth * 10n ** 18n) / reserveCoin, pair };
 }
@@ -144,6 +146,13 @@ export async function takeSnapshotAndPost(ctx: Ctx, coin: Address, pot: bigint):
     ...cfg.excludeAddresses,
   ];
   if (pair !== ZERO) excluded.push(pair);
+  // privacy stage 2 (spec section 5.2): GrovePool is a holder; DarkCurve, Planter and CreatorStubs are excluded.
+  // Inert while the deployment file has no stage-2 address: no RPC call, the list above is used unchanged.
+  if (hasPrivacyModules(dep)) {
+    const p = applyPrivacyExclusions(excluded, dep, await knownStubs(ctx));
+    if (p.poolWasListed) log.warn("EXCLUDE_ADDRESSES names GrovePool; it is an eligible holder and was kept in the snapshot", { grovePool: dep.grovePool });
+    excluded.splice(0, excluded.length, ...p.excluded);
+  }
 
   const balances = await balancesAt(ctx, coin, snapshotBlock);
   const holders = eligibleHolders(balances, excluded, minWei);

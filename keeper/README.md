@@ -9,7 +9,11 @@ The off-chain worker for zkBNB (SPEC.md §6). One Node process, five jobs:
 | `rotate`  | `DonationRotator.settle(ringId)` for every ring whose epoch elapsed and whose pot is > 0 | anyone |
 | `buyback` | `FeeRouter.buybackAndBurn` when `rootstockPot ≥ MIN_BUYBACK_BNB` | anyone |
 | `feed`    | writes `snapshots/rings.json`, a precomputed 30-day Rings feed the web can fetch instead of scanning logs | – |
-| `all`     | all of the above in order (sweep → buyback → rotate → rewards → feed), looping | |
+| `all`     | all of the above in order (sweep → buyback → rotate → rewards → feed), then the stage-2 `dividends`, `flush`, `pool-feed` (no-ops while their addresses are absent), looping | |
+
+Privacy stage 2 (Dark Curve, `privacy/PRIVACY-SPEC.md` §5.2) adds five more commands. Each is **inert** (returns
+before any RPC call) while `grovePool` / `darkCurve` / `planter` are absent from the deployment file, so a keeper
+pointed at today's chain-56 file behaves exactly as before. See "Privacy stage 2" below.
 
 Stack: TypeScript, viem, tsx, vitest, dotenv. No ethers.
 
@@ -190,6 +194,93 @@ pm2 save && pm2 startup
 pm2 logs zkbnb-keeper
 ```
 
+## Privacy stage 2
+
+| command       | what it does | permission | host |
+|---------------|--------------|------------|------|
+| `coordinator` | Epoch Coordinator: per `(coin, dir)` openability (`count ≥ K` at `T_MIN`, any count at `T_MAX`), decrypts **only the epoch sum** with the Coordinator key, solves it with the 2^24 BSGS table, quotes `minOut` (`SLIPPAGE_BPS`), proves `epochOpen`, sends `openEpoch` for every openable direction of a coin at once through `PRIVATE_TX_RPC`; drops a band-blocked or reverting direction from the mask and retries the rest; `voidEpoch` after `T_MAX + GRACE`; `pool.checkpoint()` when a period passed without an insert | anyone (the key is what matters) | coordinator host |
+| `rotate-key`  | daily key rotation, see "Coordinator key rotation" | DarkCurve owner (Safe) | coordinator host |
+| `pool-feed`   | sync bundle `<POOL_FEED_DIR>/<chainId>/{manifest.json, chunk-<n>.json}` (spec Appendix C: 4096 leaves per chunk, sha256 per chunk, checkpoints, epochs per `(coin, dir, seq)`) and `epochs.json` every pass; uploaded to Blob `snapshots/pool/<chainId>/` when `BLOB_READ_WRITE_TOKEN` is set; `--out <dir>` writes the local copy elsewhere | – | keeper |
+| `dividends`   | for each Holders-mode run that lists GrovePool: verifies the pool's leaf (= `HolderRewards.leaf`) against the posted root and calls `GrovePool.pullRewards`; idempotent via `isClaimed`; skips while the pool holds < 1 token (`MIN_REWARD_SUPPLY`) | anyone | keeper |
+| `flush`       | `CreatorStub.flush()` for every stub (from `Planter.PlantedPrivately`) with `balance + FeeRouter.pending ≥ MIN_FLUSH_BNB` | anyone | keeper |
+
+`rewards` keeps GrovePool an eligible holder (even if `EXCLUDE_ADDRESSES` names it) and excludes DarkCurve,
+Planter and every CreatorStub, only when those addresses are in the deployment file.
+
+`coordinator` and `pool-feed` loop every 15 s unless `--interval` is given. `all` **never** runs `coordinator`,
+`rotate-key` or the relayer: the Coordinator is its own pm2 app (`ENABLE_COORDINATOR=1 pm2 start
+ecosystem.config.cjs --only grove-coordinator`), and **it must run on a different host from the relayer**, under a
+different key, with no shared logs (spec §2.10).
+
+What the coordinator logs: coin, direction, seq, intent count, the sum's magnitude (`2^a..2^b`) and tx hashes.
+Never a key, never an individual ciphertext, never the exact sum before `EpochOpened` publishes it.
+`npm run keeper -- coordinator --once --dry-run` prints the would-be `openEpoch` arguments with `u` redacted the
+same way (and simulates them when `KEEPER_PRIVATE_KEY` is set).
+
+ABIs of `GrovePool`, `DarkCurve`, `Planter`, `CreatorStub` are generated from `../contracts/out` into
+`src/abis-v2.ts` by `npm run sync:abis` (after `forge build`); `test/abis2.test.ts` fails when the file is stale.
+
+Bundle details: `toIndex` is exclusive; leaves a chunked insert left as `ZERO_LEAF` are listed with kind `"zero"`;
+a chunk holds the leaves of its index range plus every record (nullifier, intent, epoch, credit, accRpt) logged while
+the tree's `nextIndex` was in that range, so a chunk is immutable once the tree has moved past it. A `credits` row
+is either a `Credited` (`amount > 0`, `claimedAmount "0"`) or a `HandleClaimed` (`amount "0"`, `claimedAmount > 0`);
+clients sum per handle. `feed-state.json` beside the manifest is local state (not uploaded).
+
+### Relayer (`relayer`, `src/relayer/`)
+
+Standalone HTTP service (Node `http`), its own pm2 app (`ENABLE_RELAYER=1 pm2 start ecosystem.config.cjs --only
+grove-relayer`) on a **different host from the Coordinator**, with its own wallet `RELAYER_PRIVATE_KEY` (the keeper
+key is never used). Routes (spec §5.3): `GET /relay?chainId=&kind=` (quote), `POST /relay`, `GET /relay/held/<ticket>`,
+`GET /relay/epochs?chainId=` (all coins, 15 s cache, same bytes as `epochs.json`), `GET /health`.
+
+- Kinds: `transfer`, `plant`, `intent`, `claim`, `v1migrate` (stage 2; refused while `grovePool` / `darkCurve` are
+  absent from the deployment file) and the stage-1 `transact`, `fill`, `vault`, `recover` (same rules as
+  `web/src/app/api/relay/route.ts`; `fill` / `vault` / `recover` need `darkPool` in the deployment file).
+- Fees: stage-2 fees are tiers (0.0002 / 0.0005 / 0.001 / 0.002 / 0.005 BNB, all under the contracts'
+  `MAX_RELAYER_FEE`), the smallest ≥ `gasPrice × gasUnits × 1.2 + RELAY_FLAT_FEE_WEI`, with `gasUnits` from
+  `GAS_UNITS_FILE` (`contracts/gas-v2.json`). The quote lists every acceptable tier. Claims are free (reimbursed
+  on-chain from the claim budget) and must name this relayer. Stage-1 kinds keep the untiered stage-1 quote.
+- Policies are pure (`policy.ts`); `onchain.ts` fills the Coordinator keys, `keySwitchAt`, `plantFee` and `seenC1`
+  from one batch of eth_calls. `v1migrate` requires `encryptedOutput2 == abi.encode(handle)` (the contract's handle
+  binding) and an unshield to the GrovePool.
+- Holds: an intent with `hold: { minOthers, submitByEpochEnd }` and a `v1migrate` with a future `notBefore`
+  (≤ 14 days) are stored AES-256-GCM encrypted under `RELAYER_HELD_DIR` (key `RELAYER_HELD_KEY`; without it holds are
+  refused). A poller releases each one **individually after its own 0–20 s jitter**, re-checking when it fires; an
+  intent whose epoch reaches `startedAt + T_MAX − 30 s` short of `minOthers` is submitted (`submitByEpochEnd`) or
+  dropped. Claims are never held. Finished tickets keep their status in memory for a day (not across restarts).
+- Safety: nullifiers of an accepted spend are locked while in flight (and while held), sends go through one
+  serialised queue, every request is simulated first, per-IP token buckets limit quotes and submissions, CORS
+  allows only `RELAYER_ALLOWED_ORIGINS`. `pool.checkpoint()` is called when a period passed without an insert.
+- Logging: **no access log**, no request body, no IP. One line per send: `[relayer] sent kind=<kind> hash=<hash>`.
+  Errors are logged as a revert name / short message only (viem's full message repeats the calldata).
+- `npm run keeper -- relayer --dry-run` serves quotes with an ephemeral key when `RELAYER_PRIVATE_KEY` is unset and
+  answers every POST with "dry run: the simulation passed, nothing was sent".
+
+### Coordinator key rotation
+
+The Coordinator key `ecSk` could decrypt every intent made under it, so it is rotated daily and destroyed as soon
+as it is no longer needed (spec §2.7, §6.4). Procedure, on the coordinator host:
+
+1. `rotate-key` runs from cron once a day: `0 3 * * * cd /opt/grove/keeper && npx tsx src/index.ts rotate-key --once`.
+2. It generates the next key into `COORDINATOR_KEY_DIR/key-<pkX>.json` (mode 0600, directory 0700) and proposes
+   `DarkCurve.setCoordinatorKey(pk, now + 1 h)`:
+   - chain 97 / local, when `KEEPER_PRIVATE_KEY` owns DarkCurve: sent directly;
+   - chain 56 (DarkCurve owned by the Safe): written as a Safe Transaction Builder batch to
+     `COORDINATOR_KEY_DIR/proposals/setCoordinatorKey-<switchAt>.json`. A Safe owner imports it (Safe app → Apps →
+     Transaction Builder → drop the file) and the signers execute it **before `switchAt − 10 min`**
+     (`setCoordinatorKey` needs `switchAt ≥ now + OVERLAP`). An expired proposal is detected on the next pass: its
+     unused key is destroyed and a fresh one is proposed.
+3. The running `coordinator` picks the new key file up on its next pass (it reads the directory every pass) and
+   opens epochs under either key: an epoch records the key generation of its first intent.
+4. Once `switchAt` has passed and the **last epoch under the old key** is opened or voided (at most
+   `T_MAX + GRACE` = 35 min later), `rotate-key` overwrites the old key file with random bytes, unlinks it and logs
+   `KeyDestroyed gen=<g> pk=[x,y]`. Keep that log line: HANDOFF.md cites it as the attestation of destruction.
+5. `COORDINATOR_SK` in `.env` is only for a single-key setup (tests, testnet); the process cannot destroy it. When
+   it is retired the pass logs "COORDINATOR_SK holds a retired key; remove it from the environment now".
+   Production uses `COORDINATOR_KEY_DIR` only.
+6. Never copy key files off the host and never back them up: a retired key that survives anywhere extends the
+   retroactive exposure beyond one rotation window.
+
 ## Tests
 
 ```sh
@@ -203,6 +294,11 @@ npm test
   cache round trip, exclusions.
 - `snapshot.test.ts` — exact JSON schema, proof verification with the Solidity leaf layout, file layout.
 - `abi.test.ts` — the hand-written ABIs are checked against `contracts/out` (skipped if not built).
+- Stage 2: `coordinator.test.ts` (per-direction openability, `dirMask`, `minOut` from mocked reserves, band-blocked
+  and reverting directions dropped and retried, void timing, redaction, and a spy proving `elgamal.decrypt` only ever
+  sees summed ciphertexts), `rotateKey.test.ts`, `poolFeed.test.ts`, `dividends.test.ts` (pool leaf equals
+  `HolderRewards.leaf`, flush), `rewardsPrivacy.test.ts` (inert with the live deployment file), `abis2.test.ts`,
+  plus the crypto core `bsgs`, `elgamal`, `checkpoint`, `zkprove`, `v2vectors`.
 
 On-chain cross-check (needs Foundry and `forge build` in `../contracts`):
 

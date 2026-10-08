@@ -145,3 +145,20 @@ export const feedEventsAbi = [
   ...holderRewardsAbi.filter((x) => x.type === "event"),
   ...donationRotatorAbi.filter((x) => x.type === "event"),
 ] as const;
+
+// ---------------------------------------------------------------- privacy stage 2
+// GrovePool / DarkCurve / Planter / CreatorStub come from the compiled artifacts (scripts/sync-abis.mjs →
+// src/abis-v2.ts); test/abis2.test.ts fails when that file is stale. The fragments below are additions to
+// stage-1 contracts the stage-2 commands read; they are cross-checked against contracts/out the same way.
+export { grovePoolAbi, darkCurveAbi, planterAbi, creatorStubAbi } from "./abis-v2.js";
+
+export const launchpadQuoteAbi = parseAbi([
+  "function quoteBuy(address coin, uint256 bnbIn) view returns (uint256 tokensOut, uint256 bnbUsed, uint256 fee)",
+  "function quoteSell(address coin, uint256 tokensIn) view returns (uint256 bnbOut, uint256 gross, uint256 fee)",
+  "function isGraduated(address coin) view returns (bool)",
+  "function pairOf(address coin) view returns (address)",
+]);
+
+export const rootsQuoteAbi = parseAbi(["function harvestValue(address coin, uint256 tokens) view returns (uint256)"]);
+
+export const feeRouterPendingAbi = parseAbi(["function pending(address) view returns (uint256)"]);

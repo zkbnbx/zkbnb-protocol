@@ -11,6 +11,9 @@ fs_permissions = [
   { access = "read", path = "./poseidon" },
   { access = "read", path = "./test/fixtures" },
   { access = "read-write", path = "./deployments" },
+  # privacy stage 2 (DeployPrivacy.s.sol): claimGas, and the chain-56 dev-key refusal
+  { access = "read", path = "./gas-v2.json" },
+  { access = "read", path = "./src/verifiers" },
 ]
 remappings = [
   "@openzeppelin/=lib/openzeppelin-contracts/",

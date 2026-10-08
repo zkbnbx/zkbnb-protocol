@@ -1,6 +1,6 @@
 import { formatEther, type Address } from "viem";
 import { feeRouterAbi, launchpadAbi, routerAbi } from "../abis.js";
-import { sendTx, ZERO, type Ctx } from "../chain.js";
+import { errorText, sendTx, ZERO, type Ctx } from "../chain.js";
 import { logger } from "../log.js";
 
 const log = logger("buyback");
@@ -75,37 +75,26 @@ async function externalBuyback(ctx: Ctx): Promise<Address | undefined> {
 
 /** FlapBuyback reverts with this while the Flap token is neither on its curve nor on PancakeSwap (e.g. migrating). */
 function isNotTradable(e: unknown): boolean {
-  const m = e instanceof Error ? `${e.message}\n${(e as { details?: string }).details ?? ""}\n${(e as { shortMessage?: string }).shortMessage ?? ""}` : String(e);
-  return /not tradable/i.test(m);
+  return /not tradable/i.test(errorText(e));
 }
 
 async function externalTryBuyback(ctx: Ctx, pot: bigint, token: Address, adapter: Address): Promise<{ done: boolean; potWei: bigint }> {
   const { pub, dep } = ctx;
   // simulate from the address that will send (the keeper is uncapped); with no key (DRY_RUN) use FeeRouter.keeper()
   const from = ctx.account?.address ?? (await pub.readContract({ address: dep.feeRouter, abi: feeRouterAbi, functionName: "keeper" }));
-  let quote: bigint;
+  // covers both the quote and the send: the status can flip in between (the token migrates to PancakeSwap)
   try {
     // the return value is what the adapter burned after Flap's buy tax and PancakeSwap fees, so no haircut is needed
-    const sim = await pub.simulateContract({ address: dep.feeRouter, abi: feeRouterAbi, functionName: "buybackAndBurn", args: [0n], account: from });
-    quote = sim.result;
-  } catch (e) {
-    if (isNotTradable(e)) {
-      log.warn("Flap rootstock is not tradable right now, skipping", { rootstock: token });
+    const { result: quote } = await pub.simulateContract({ address: dep.feeRouter, abi: feeRouterAbi, functionName: "buybackAndBurn", args: [0n], account: from });
+    if (quote === 0n) {
+      log.warn("buyback quote is zero, skipping", { potBnb: formatEther(pot) });
       return { done: false, potWei: pot };
     }
-    throw e;
-  }
-  if (quote === 0n) {
-    log.warn("buyback quote is zero, skipping", { potBnb: formatEther(pot) });
-    return { done: false, potWei: pot };
-  }
-  const minOut = (quote * 97n) / 100n;
-  log.info("buying back $ZKBNB on Flap", { potBnb: formatEther(pot), rootstock: token, adapter, quote, minOut });
-  try {
+    const minOut = (quote * 97n) / 100n;
+    log.info("buying back $ZKBNB on Flap", { potBnb: formatEther(pot), rootstock: token, adapter, quote, minOut });
     const res = await sendTx(ctx, { address: dep.feeRouter, abi: feeRouterAbi, functionName: "buybackAndBurn", args: [minOut], label: "buybackAndBurn" });
     return { done: res.dryRun || res.status === "success", potWei: pot };
   } catch (e) {
-    // the status can flip between the quote and the send (the token migrates to PancakeSwap)
     if (isNotTradable(e)) {
       log.warn("Flap rootstock is not tradable right now, skipping", { rootstock: token });
       return { done: false, potWei: pot };

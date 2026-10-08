@@ -1,6 +1,6 @@
 import path from "node:path";
-import { getAddress, parseEventLogs, formatLog, type Address, type Log, type Hex, type RpcLog } from "viem";
-import type { Ctx } from "./chain.js";
+import { getAddress, parseEventLogs, formatLog, numberToHex, toEventSelector, type Address, type Log, type Hex, type RpcLog } from "viem";
+import { errorText, sameAddr, type Ctx } from "./chain.js";
 import { groveCoinAbi } from "./abis.js";
 import { applyTransfers, deserializeBalances, serializeBalances, type BalanceMap } from "./balances.js";
 import { readJson, writeJsonAtomic } from "./state.js";
@@ -33,6 +33,7 @@ const TOO_MANY = [/limit/i, /too many/i, /exceed/i, /range/i, /response size/i, 
 /**
  * getLogs in LOG_CHUNK-sized windows. If the node rejects a window as too large the window is
  * halved for that range (down to 1 block) so one over-active range never stalls the scan.
+ * Raw eth_getLogs because callers filter by bare topics (viem's getLogs only takes ABI events).
  */
 export async function getLogsChunked(
   ctx: Ctx,
@@ -50,8 +51,8 @@ export async function getLogsChunked(
         params: [
           {
             address: args.address,
-            fromBlock: `0x${from.toString(16)}`,
-            toBlock: `0x${to.toString(16)}`,
+            fromBlock: numberToHex(from),
+            toBlock: numberToHex(to),
             topics: args.topics as never,
           },
         ],
@@ -63,7 +64,7 @@ export async function getLogsChunked(
       from = to + 1n;
       if (chunk < ctx.cfg.logChunk) chunk = chunk * 2n > ctx.cfg.logChunk ? ctx.cfg.logChunk : chunk * 2n;
     } catch (e) {
-      const msg = e instanceof Error ? `${e.message} ${(e as { details?: string }).details ?? ""}` : String(e);
+      const msg = errorText(e);
       if (chunk > 1n && TOO_MANY.some((r) => r.test(msg))) {
         chunk = chunk / 2n;
         log.warn("getLogs window rejected, halving", { from, to, chunk });
@@ -100,12 +101,12 @@ export async function balancesAt(ctx: Ctx, coin: Address, snapshotBlock: bigint)
   const cached = readJson<CoinCache>(file);
   let balances: BalanceMap = new Map();
   let from = BigInt(dep.startBlock);
-  if (cached && cached.chainId === cfg.chainId && cached.coin.toLowerCase() === coin.toLowerCase()) {
+  if (cached && cached.chainId === cfg.chainId && sameAddr(cached.coin, coin)) {
     balances = deserializeBalances(cached.balances);
     from = BigInt(cached.lastBlock) + 1n;
   }
   const safe = snapshotBlock - BigInt(cfg.confirmations);
-  const transferTopic = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef" as Hex;
+  const transferTopic = toEventSelector("Transfer(address,address,uint256)");
 
   const fold = (logs: RawLog[]) => {
     const parsed = parseEventLogs({ abi: groveCoinAbi, eventName: "Transfer", logs: logs as never, strict: true });
@@ -172,7 +173,7 @@ export class BlockTimestamps {
     return out;
   }
 
-  /** Drop entries older than `keepBlocksBelow` to keep the file bounded. */
+  /** Drop entries below block `keepFrom` to keep the file bounded. */
   prune(keepFrom: bigint) {
     for (const k of Object.keys(this.cache.ts)) if (BigInt(k) < keepFrom) delete this.cache.ts[k];
   }

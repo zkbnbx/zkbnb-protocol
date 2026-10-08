@@ -6,7 +6,11 @@
     "build": "bash scripts/setup.sh",
     "test": "node --test --test-force-exit test/zk.test.mjs",
     "fixtures": "node scripts/fixtures.mjs",
-    "verify": "bash scripts/verify-artifacts.sh"
+    "verify": "bash scripts/verify-artifacts.sh",
+    "build:v2": "bash scripts/setup-v2.sh",
+    "test:v2": "node --test --test-force-exit test/zk-v2.test.mjs",
+    "fixtures:v2": "node scripts/fixtures-v2.mjs",
+    "check:constants": "node scripts/check-constants.mjs"
   },
   "keywords": [],
   "author": "",

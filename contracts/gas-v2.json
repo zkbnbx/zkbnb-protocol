@@ -1,0 +1,71 @@
+{
+  "measuredAt": "2026-10-06T19:34:27.712Z",
+  "commit": "00cd645+uncommitted",
+  "transfer": 1394000,
+  "plant": 3754000,
+  "intent": 2099000,
+  "claim": 1475000,
+  "v1migrate": 2200000,
+  "openEpoch3": 3032000,
+  "voidEpoch": 1177000,
+  "margin": 1.2,
+  "method": "units = roundUp1000((exec + proofs*verifyDelta + 21000 + calldata) * margin); exec from GrovePool.t.sol/DarkCurve.t.sol (mock verifiers), verifyDelta and calldata from PrivacyFixtures.t.sol test_gas_realVerifierAndCalldata (fixture proofs). Written by contracts/scripts/gas-v2.mjs; do not edit by hand.",
+  "detail": {
+    "transfer": {
+      "exec": 848096,
+      "verifyDelta": 269848,
+      "proofs": 1,
+      "intrinsic": 21000,
+      "calldata": 22220,
+      "base": 1161164
+    },
+    "plant": {
+      "exec": 2810479,
+      "verifyDelta": 269848,
+      "proofs": 1,
+      "intrinsic": 21000,
+      "calldata": 26548,
+      "base": 3127875
+    },
+    "intent": {
+      "exec": 1407766,
+      "verifyDelta": 296272,
+      "proofs": 1,
+      "intrinsic": 21000,
+      "calldata": 23588,
+      "base": 1748626
+    },
+    "claim": {
+      "exec": 976230,
+      "verifyDelta": 216943,
+      "proofs": 1,
+      "intrinsic": 21000,
+      "calldata": 14520,
+      "base": 1228693
+    },
+    "v1migrate": {
+      "exec": 1571188,
+      "verifyDelta": 227668,
+      "proofs": 1,
+      "intrinsic": 21000,
+      "calldata": 13116,
+      "base": 1832972
+    },
+    "openEpoch3": {
+      "exec": 1800406,
+      "verifyDelta": 230104,
+      "proofs": 3,
+      "intrinsic": 21000,
+      "calldata": 14276,
+      "base": 2525994
+    },
+    "voidEpoch": {
+      "exec": 958314,
+      "verifyDelta": 0,
+      "proofs": 0,
+      "intrinsic": 21000,
+      "calldata": 700,
+      "base": 980014
+    }
+  }
+}

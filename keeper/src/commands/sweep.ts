@@ -1,4 +1,4 @@
-import { formatEther, type Address } from "viem";
+import { formatEther } from "viem";
 import { groveCoinAbi, launchpadAbi, routerAbi } from "../abis.js";
 import { sendTx, ZERO, type Ctx } from "../chain.js";
 import { logger } from "../log.js";
@@ -43,14 +43,4 @@ export async function sweep(ctx: Ctx): Promise<{ swept: number; checked: number 
   }
   log.info("sweep done", { graduated: checked, swept });
   return { swept, checked };
-}
-
-export async function graduatedCoins(ctx: Ctx): Promise<Address[]> {
-  const coins = await ctx.pub.readContract({ address: ctx.dep.launchpad, abi: launchpadAbi, functionName: "allCoins" });
-  const out: Address[] = [];
-  for (const c of coins) {
-    const pair = await ctx.pub.readContract({ address: ctx.dep.launchpad, abi: launchpadAbi, functionName: "pairOf", args: [c] });
-    if (pair !== ZERO) out.push(c);
-  }
-  return out;
 }

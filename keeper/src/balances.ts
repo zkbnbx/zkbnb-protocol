@@ -1,4 +1,4 @@
-import { getAddress, type Address } from "viem";
+import { getAddress, zeroAddress, type Address } from "viem";
 
 export interface TransferLike {
   from: Address;
@@ -15,13 +15,13 @@ export function applyTransfers(balances: BalanceMap, transfers: Iterable<Transfe
     const to = getAddress(t.to);
     const v = BigInt(t.value);
     if (v === 0n) continue;
-    if (from !== "0x0000000000000000000000000000000000000000") {
+    if (from !== zeroAddress) {
       const nb = (balances.get(from) ?? 0n) - v;
       if (nb < 0n) throw new Error(`balance reconstruction underflow for ${from}: missing logs?`);
       if (nb === 0n) balances.delete(from);
       else balances.set(from, nb);
     }
-    if (to !== "0x0000000000000000000000000000000000000000") {
+    if (to !== zeroAddress) {
       balances.set(to, (balances.get(to) ?? 0n) + v);
     }
   }
@@ -42,9 +42,7 @@ export function deserializeBalances(o: Record<string, string>): BalanceMap {
   return m;
 }
 
-/**
- * Filter holders: drop excluded addresses and anyone below `minWei`.
- */
+/** Drop excluded addresses and anyone below `minWei`; largest balance first. */
 export function eligibleHolders(balances: BalanceMap, excluded: Iterable<Address>, minWei: bigint): { account: Address; balance: bigint }[] {
   const ex = new Set([...excluded].map((a) => a.toLowerCase()));
   const out: { account: Address; balance: bigint }[] = [];

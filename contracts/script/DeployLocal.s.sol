@@ -9,6 +9,8 @@ import {MockPancakeRouter} from "../test/mocks/MockPancakeRouter.sol";
 
 /// @notice Local (anvil) deployment: mock WBNB / Pancake factory / router first, then the stack.
 ///         env (all optional): TREASURY, RECOVERY, KEEPER, OWNER default to the broadcaster.
+///         Also deploys the privacy stage-2 stack (dev verifiers, dev Coordinator key unless COORDINATOR_PK_X/Y,
+///         CLAIM_BUDGET_BNB default 0.1; SKIP_PRIVACY=true to leave it out), see DeployPrivacy.s.sol.
 contract DeployLocal is DeployBase {
     function run() external {
         address deployer = msg.sender;
@@ -27,6 +29,7 @@ contract DeployLocal is DeployBase {
         _log(d);
         console2.log("wbnb            ", address(wbnb));
         console2.log("pancakeFactory  ", address(factory));
-        _writeDeployment(d, string.concat("deployments/", vm.toString(block.chainid), ".json"));
+        // DEPLOYMENT_FILE (optional, under deployments/): write elsewhere, e.g. a scratch copy for a test run
+        _writeDeployment(d, vm.envOr("DEPLOYMENT_FILE", string.concat("deployments/", vm.toString(block.chainid), ".json")));
     }
 }
