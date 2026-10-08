@@ -10,6 +10,8 @@ import { buildSnapshot, publishSnapshot, verifySnapshot, writeSnapshot } from ".
 import { loadState, saveState } from "../state.js";
 import { logger } from "../log.js";
 import { applyPrivacyExclusions, hasPrivacyModules, knownStubs } from "../stubs.js";
+import { rewardPosterAbi } from "../abis-v2.js";
+import { MIN_REWARD_SUPPLY, poolLeafFromSnapshot } from "./dividends.js";
 
 const log = logger("rewards");
 
@@ -43,7 +45,12 @@ export async function rewards(ctx: Ctx): Promise<RewardsResult> {
 
   if (ctx.account) {
     const keeper = await pub.readContract({ address: dep.holderRewards, abi: holderRewardsAbi, functionName: "keeper" });
-    if (!sameAddr(keeper, ctx.account.address)) {
+    if (dep.rewardPoster) {
+      // review N1: HolderRewards' keeper is the RewardPoster, and this key is its operator
+      const operator = await pub.readContract({ address: dep.rewardPoster, abi: rewardPosterAbi, functionName: "operator" });
+      if (!sameAddr(keeper, dep.rewardPoster)) log.warn("HolderRewards.keeper is not the RewardPoster; posts will revert", { keeper, rewardPoster: dep.rewardPoster });
+      if (!sameAddr(operator, ctx.account.address)) log.warn("this key is not RewardPoster.operator; posts will revert", { operator, me: ctx.account.address });
+    } else if (!sameAddr(keeper, ctx.account.address)) {
       log.warn("this key is not HolderRewards.keeper; postRun will revert", { keeper, me: ctx.account.address });
     }
   }
@@ -155,6 +162,15 @@ export async function takeSnapshotAndPost(ctx: Ctx, coin: Address, pot: bigint):
   }
 
   const balances = await balancesAt(ctx, coin, snapshotBlock);
+  // review N1: with a RewardPoster the pool's share is pulled in the posting transaction, and GrovePool.pullRewards
+  // refuses a pool coin balance below MIN_REWARD_SUPPLY, so a dust pool is left out instead of reverting the post
+  if (dep.rewardPoster && dep.grovePool) {
+    const poolBal = [...balances].find(([a]) => sameAddr(a, dep.grovePool!))?.[1] ?? 0n;
+    if (poolBal > 0n && poolBal < MIN_REWARD_SUPPLY) {
+      excluded.push(dep.grovePool);
+      log.info("GrovePool holds less than one token; left out of this run", { coin });
+    }
+  }
   const holders = eligibleHolders(balances, excluded, minWei);
   log.info("snapshot taken", {
     coin,
@@ -190,13 +206,15 @@ export async function takeSnapshotAndPost(ctx: Ctx, coin: Address, pot: bigint):
     uri = await publishSnapshot({ snapshotBaseUrl: cfg.snapshotBaseUrl, blobToken: cfg.blobToken }, built.json);
   }
 
-  const res = await sendTx(ctx, {
-    address: dep.holderRewards,
-    abi: holderRewardsAbi,
-    functionName: "postRun",
-    args: [coin, built.root, built.amount, BigInt(built.json.holders), uri],
-    label: `postRun(${coin}, run ${runId})`,
-  });
+  const res = dep.rewardPoster
+    ? await postThroughPoster(ctx, dep.rewardPoster, built, uri, runId)
+    : await sendTx(ctx, {
+        address: dep.holderRewards,
+        abi: holderRewardsAbi,
+        functionName: "postRun",
+        args: [coin, built.root, built.amount, BigInt(built.json.holders), uri],
+        label: `postRun(${coin}, run ${runId})`,
+      });
   if (res.dryRun) return true;
   if (res.status !== "success") return false;
 
@@ -215,4 +233,21 @@ export async function takeSnapshotAndPost(ctx: Ctx, coin: Address, pot: bigint):
   saveState(cfg.snapshotDir, st);
   log.info("run posted", { coin, runId, amountBnb: formatEther(built.amount), holders: built.json.holders, uri, hash: res.hash });
   return true;
+}
+
+/**
+ * Review N1: post through the RewardPoster, which pulls GrovePool's leaf in the same transaction, so nobody can
+ * shield between the run becoming public and the pool's share being spread over the pool's notes.
+ */
+function postThroughPoster(ctx: Ctx, poster: Address, built: ReturnType<typeof buildSnapshot>, uri: string, runId: bigint) {
+  const coin = getAddress(built.json.coin);
+  const pl = ctx.dep.grovePool ? poolLeafFromSnapshot(built.json, ctx.dep.grovePool) : undefined;
+  if (pl) log.info("pool share pulled in the posting transaction", { coin, runId, poolAmountBnb: formatEther(pl.amount) });
+  return sendTx(ctx, {
+    address: poster,
+    abi: rewardPosterAbi,
+    functionName: "post",
+    args: [coin, built.root, built.amount, BigInt(built.json.holders), uri, pl?.amount ?? 0n, pl?.proof ?? []],
+    label: `RewardPoster.post(${coin}, run ${runId})`,
+  } as never);
 }

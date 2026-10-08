@@ -2618,6 +2618,10 @@ export const darkCurveAbi = [
       {
         "name": "u",
         "type": "uint256"
+      },
+      {
+        "name": "minOut",
+        "type": "uint256"
       }
     ],
     "outputs": [
@@ -3612,6 +3616,114 @@ export const creatorStubAbi = [
   {
     "type": "error",
     "name": "NotPlanter",
+    "inputs": []
+  }
+] as const;
+
+export const rewardPosterAbi = [
+  {
+    "type": "constructor",
+    "inputs": [
+      {
+        "name": "holderRewards_",
+        "type": "address"
+      },
+      {
+        "name": "pool_",
+        "type": "address"
+      },
+      {
+        "name": "operator_",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "holderRewards",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "operator",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "pool",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "post",
+    "inputs": [
+      {
+        "name": "coin",
+        "type": "address"
+      },
+      {
+        "name": "root",
+        "type": "bytes32"
+      },
+      {
+        "name": "amount",
+        "type": "uint256"
+      },
+      {
+        "name": "holders",
+        "type": "uint256"
+      },
+      {
+        "name": "uri",
+        "type": "string"
+      },
+      {
+        "name": "poolAmount",
+        "type": "uint256"
+      },
+      {
+        "name": "poolProof",
+        "type": "bytes32[]"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "runId",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "error",
+    "name": "NotOperator",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroAddress",
     "inputs": []
   }
 ] as const;

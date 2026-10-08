@@ -18,7 +18,7 @@ import {console2} from "forge-std/console2.sol";
 import {ShieldedPool} from "../src/ShieldedPool.sol";
 import {Groth16Verifier} from "../src/Groth16Verifier.sol";
 import {MockVerifier} from "./mocks/MockVerifier.sol";
-import {MockVerifier13, MockVerifier17, MockVerifier5, MockVerifier7} from "./mocks/MockVerifierN.sol";
+import {MockVerifier13, MockVerifier17, MockVerifier5, MockVerifier8} from "./mocks/MockVerifierN.sol";
 
 // ----------------------------------------------------------------------------------------------
 // Minimal stand-ins. The fixture binds fixed addresses into its extDataHash values (coin 0x3333…,
@@ -288,7 +288,7 @@ contract PrivacyFixturesTest is Test {
                 assertFalse(_verifyRaw(kind, other, sig), string.concat("foreign proof accepted: ", NAMES[i]));
             }
         }
-        assertEq(checked, 13 * 9 + 17 * 4 + 7 * 2 + 5 * 4, "signals checked");
+        assertEq(checked, 13 * 9 + 17 * 4 + 8 * 2 + 5 * 4, "signals checked");
     }
 
     /// @notice Full scenario through the contracts: roots, nullifiers, balances, handles, planter
@@ -316,11 +316,17 @@ contract PrivacyFixturesTest is Test {
         proofs[1] = _proof(14);
         uint32[3] memory seq;
         uint256[3] memory u = [uint256(0), 50_001, 0];
-        uint256[3] memory minOut;
+        uint256[3] memory minOut = [uint256(0), _u(_p(14, ".pub.minOut")), 0];
         vm.expectRevert(DarkCurve.InvalidProof.selector);
         dc.openEpoch(COIN, 2, seq, u, proofs, minOut);
 
+        // review N2: a copy of the open with the slippage floor dropped to 0 is refused
         u[1] = _u(_p(14, ".pub.u"));
+        minOut[1] = 0;
+        vm.expectRevert(DarkCurve.InvalidProof.selector);
+        dc.openEpoch(COIN, 2, seq, u, proofs, minOut);
+        minOut[1] = _u(_p(14, ".pub.minOut"));
+
         uint256 poolBnb = address(gp).balance;
         uint256 poolTok = IERC20(COIN).balanceOf(address(gp));
         uint32 idx = gp.nextIndex();
@@ -505,11 +511,15 @@ contract PrivacyFixturesTest is Test {
         uint256[2] memory c1 = _pair(_p(i, ".pub.c1"));
         uint256[2] memory c2 = _pair(_p(i, ".pub.c2"));
         uint256 u = _u(_p(i, ".pub.u"));
+        uint256 mo = _u(_p(i, ".pub.minOut"));
         (uint256[2] memory pk,) = dc.activeCoordinatorKey();
         assertEq(pk[0], ecPk[0]);
         assertEq(pk[1], ecPk[1]);
-        assertTrue(dc.verifyOpen(p, ecPk, c1, c2, u), "open proof");
-        assertFalse(dc.verifyOpen(p, ecPk, c1, c2, u + 1), "wrong u");
+        assertTrue(dc.verifyOpen(p, ecPk, c1, c2, u, mo), "open proof");
+        assertFalse(dc.verifyOpen(p, ecPk, c1, c2, u + 1, mo), "wrong u");
+        // review N2: the proof is bound to its minOut; a copy with any other floor (0 included) fails
+        assertFalse(dc.verifyOpen(p, ecPk, c1, c2, u, 0), "minOut 0");
+        assertFalse(dc.verifyOpen(p, ecPk, c1, c2, u, mo - 1), "lower minOut");
 
         uint256 n = i == 13 ? 3 : 1;
         B.Point memory s1 = B.identity();
@@ -577,7 +587,7 @@ contract PrivacyFixturesTest is Test {
     ///         the key, so the ceremony verifiers cost the same.
     function test_gas_realVerifierAndCalldata() public {
         address[4] memory mocks =
-            [address(new MockVerifier13()), address(new MockVerifier17()), address(new MockVerifier5()), address(new MockVerifier7())];
+            [address(new MockVerifier13()), address(new MockVerifier17()), address(new MockVerifier5()), address(new MockVerifier8())];
         uint256[4] memory delta;
         uint256 cdTransfer;
         uint256 cdPlant;
@@ -607,7 +617,7 @@ contract PrivacyFixturesTest is Test {
         GrovePool.Proof[3] memory op = [_proof(13), _proof(14), _proof(14)];
         uint32[3] memory seq = [uint32(_u(_p(13, ".seq"))), uint32(_u(_p(14, ".seq"))), uint32(_u(_p(14, ".seq")))];
         uint256[3] memory u = [_u(_p(13, ".pub.u")), _u(_p(14, ".pub.u")), _u(_p(14, ".pub.u"))];
-        uint256[3] memory minOut = [uint256(1 ether), 1 ether, 1 ether];
+        uint256[3] memory minOut = [_u(_p(13, ".pub.minOut")), _u(_p(14, ".pub.minOut")), _u(_p(14, ".pub.minOut"))];
         uint256 cdOpen3 = _calldataGas(abi.encodeCall(DarkCurve.openEpoch, (COIN, uint8(7), seq, u, op, minOut)));
         uint256 cdVoid = _calldataGas(abi.encodeCall(DarkCurve.voidEpoch, (COIN, uint8(1), uint32(0))));
 
@@ -677,8 +687,8 @@ contract PrivacyFixturesTest is Test {
             g = gasleft();
             ok = Groth16VerifierClaim(v).verifyProof(p.a, p.b, p.c, f);
         } else {
-            uint256[7] memory f;
-            for (uint256 j; j < 7; j++) f[j] = s[j];
+            uint256[8] memory f;
+            for (uint256 j; j < 8; j++) f[j] = s[j];
             g = gasleft();
             ok = Groth16VerifierOpen(v).verifyProof(p.a, p.b, p.c, f);
         }
@@ -848,8 +858,9 @@ contract PrivacyFixturesTest is Test {
             uint256[2] memory ecPk = _pair(_p(i, ".pub.ecPk"));
             uint256[2] memory c1 = _pair(_p(i, ".pub.c1"));
             uint256[2] memory c2 = _pair(_p(i, ".pub.c2"));
-            sig = new uint256[](7);
-            (sig[0], sig[1], sig[2], sig[3], sig[4], sig[5], sig[6]) = (ecPk[0], ecPk[1], c1[0], c1[1], c2[0], c2[1], _u(_p(i, ".pub.u")));
+            sig = new uint256[](8);
+            (sig[0], sig[1], sig[2], sig[3], sig[4], sig[5], sig[6], sig[7]) =
+                (ecPk[0], ecPk[1], c1[0], c1[1], c2[0], c2[1], _u(_p(i, ".pub.u")), _u(_p(i, ".pub.minOut")));
         }
     }
 
@@ -867,8 +878,8 @@ contract PrivacyFixturesTest is Test {
             for (uint256 j; j < 5; j++) f[j] = s[j];
             return vC.verifyProof(p.a, p.b, p.c, f);
         }
-        uint256[7] memory g;
-        for (uint256 j; j < 7; j++) g[j] = s[j];
+        uint256[8] memory g;
+        for (uint256 j; j < 8; j++) g[j] = s[j];
         return vO.verifyProof(p.a, p.b, p.c, g);
     }
 
@@ -876,7 +887,9 @@ contract PrivacyFixturesTest is Test {
         if (kind == K_TRANSFER) return gp.verifyTransfer(p, _tPub(i));
         if (kind == K_INTENT) return dc.verifyIntent(p, _iPub(i));
         if (kind == K_CLAIM) return dc.verifyClaim(p, _cPub(i));
-        return dc.verifyOpen(p, _pair(_p(i, ".pub.ecPk")), _pair(_p(i, ".pub.c1")), _pair(_p(i, ".pub.c2")), _u(_p(i, ".pub.u")));
+        return dc.verifyOpen(
+            p, _pair(_p(i, ".pub.ecPk")), _pair(_p(i, ".pub.c1")), _pair(_p(i, ".pub.c2")), _u(_p(i, ".pub.u")), _u(_p(i, ".pub.minOut"))
+        );
     }
 
     // ============================================================ helpers

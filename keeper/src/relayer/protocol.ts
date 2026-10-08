@@ -44,8 +44,11 @@ export const HOLD_MAX_SEC = 14 * 86_400;
 export const HOLD_MIN_OTHERS_MAX = 16;
 /** Releases of held requests are spread individually over [0, this) ms. */
 export const RELEASE_JITTER_MS = 20_000;
-/** `submitByEpochEnd`: the held intent is released this long before startedAt + T_MAX. */
+/** `submitByEpochEnd`: the held intent is released this long (plus RELEASE_LAND_SEC) before startedAt + T_MAX. */
 export const EPOCH_END_LEAD_SEC = 30;
+/** Time a released request may take to land: the release jitter (20 s) plus inclusion. A held intent is released
+ *  only into an epoch that cannot become openable within this window (review N8). */
+export const RELEASE_LAND_SEC = 30;
 
 /** Stage-1 constants, as web/src/lib/relay.ts has them. */
 export const RELAY_GAS_UNITS_DEFAULT = 1_000_000n;

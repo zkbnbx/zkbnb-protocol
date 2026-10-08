@@ -96,7 +96,7 @@ export async function readPolicyInput(pub: Reader, a: { darkCurve: Address; laun
   throw new Error("unreachable");
 }
 
-/** The watched epoch of each held (coin, dir) plus params.tMax and chain time, in one batch. */
+/** The watched epoch of each held (coin, dir) plus params tMin / tMax / k and chain time, in one batch. */
 export async function readHoldStates(pub: Reader, darkCurve: Address, keys: readonly { coin: Hex; dir: number }[]): Promise<{ now: number; states: Map<string, HoldEpochState> }> {
   const dc = { address: darkCurve, abi: darkCurveAbi as unknown as Abi };
   const [block, params, ...seqs] = await Promise.all([
@@ -104,12 +104,13 @@ export async function readHoldStates(pub: Reader, darkCurve: Address, keys: read
     pub.readContract({ ...dc, functionName: "params" }),
     ...keys.map((k) => pub.readContract({ ...dc, functionName: "cur", args: [k.coin, BigInt(k.dir)] })),
   ]);
-  const tMax = Number((params as readonly unknown[])[1]);
+  const p = params as readonly unknown[];
+  const [tMin, tMax, kMin] = [Number(p[0]), Number(p[1]), Number(p[2])];
   const eps = await Promise.all(keys.map((k, i) => pub.readContract({ ...dc, functionName: "epochOf", args: [k.coin, k.dir, Number(seqs[i])] })));
   const states = new Map<string, HoldEpochState>();
   keys.forEach((k, i) => {
     const e = eps[i] as { startedAt: bigint; status: number; count: number };
-    states.set(stateKey(k.coin, k.dir), { seq: Number(seqs[i]), status: Number(e.status), count: Number(e.count), startedAt: Number(e.startedAt), tMax });
+    states.set(stateKey(k.coin, k.dir), { seq: Number(seqs[i]), status: Number(e.status), count: Number(e.count), startedAt: Number(e.startedAt), tMin, tMax, k: kMin });
   });
   return { now: Number(block.timestamp), states };
 }

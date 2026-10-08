@@ -172,7 +172,7 @@ function mockChain(st: MockState, over: Partial<RelayerChain> = {}): RelayerChai
       i++;
       return `0x${i.toString(16).padStart(64, "0")}` as Hex;
     },
-    holdStates: async (keys) => ({ now: st.now, states: new Map(keys.map((k) => [stateKey(k.coin, k.dir), st.states.get(stateKey(k.coin, k.dir)) ?? { seq: 0, status: 0, count: 0, startedAt: 0, tMax: 300 }])) }),
+    holdStates: async (keys) => ({ now: st.now, states: new Map(keys.map((k) => [stateKey(k.coin, k.dir), st.states.get(stateKey(k.coin, k.dir)) ?? { seq: 0, status: 0, count: 0, startedAt: 0, tMin: 60, tMax: 300, k: 5 }])) }),
     epochs: async () => ({ chainId: 56, coins: { [COIN]: [] }, updatedAt: 1 }),
     checkpoint: async () => {},
     ...over,
@@ -392,13 +392,29 @@ describe("per-direction hold lifecycle", () => {
   const rec = (coin: Hex, dir: number, minOthers: number, submitByEpochEnd: boolean, n: string) => ({ kind: "intent" as const, body: intentBody({ coin, dir }), nullifiers: [n], coin, dir, hold: { minOthers, submitByEpochEnd } });
 
   it("decision rule: count ≥ minOthers releases; at startedAt + T_MAX − 30 s submit or drop; idle waits", () => {
-    const st = { seq: 4, status: 1, count: 2, startedAt: 1000, tMax: 300 };
+    const st = { seq: 4, status: 1, count: 2, startedAt: 1000, tMin: 60, tMax: 300, k: 5 };
     expect(holdDecision({ minOthers: 2, submitByEpochEnd: false }, st, 1100, 900)).toEqual({ action: "release" });
     expect(holdDecision({ minOthers: 3, submitByEpochEnd: false }, st, 1100, 900)).toEqual({ action: "wait", count: 2, opensAt: 1300 });
-    expect(holdDecision({ minOthers: 3, submitByEpochEnd: true }, st, 1270, 900)).toEqual({ action: "release" });
+    expect(holdDecision({ minOthers: 3, submitByEpochEnd: true }, st, 1245, 900)).toEqual({ action: "release" });
     expect(holdDecision({ minOthers: 3, submitByEpochEnd: false }, st, 1270, 900)).toMatchObject({ action: "drop" });
     expect(holdDecision({ minOthers: 3, submitByEpochEnd: false }, { ...st, status: 0, count: 0 }, 99_999, 900)).toEqual({ action: "wait", count: 0 });
     expect(holdDecision({ minOthers: 3, submitByEpochEnd: false }, { ...st, status: 0, count: 0 }, 900 + 14 * 86_400, 900)).toMatchObject({ action: "drop" });
+  });
+
+  it("review N8: never released into an epoch that may open before the release lands", () => {
+    const k5 = { seq: 0, status: 1, count: 5, startedAt: 1000, tMin: 60, tMax: 300, k: 5 };
+    // K reached; T_MIN not yet reached even after the 30 s landing window: release
+    expect(holdDecision({ minOthers: 2, submitByEpochEnd: false }, k5, 1010, 900)).toEqual({ action: "release" });
+    // K reached and T_MIN reached within the landing window: the coordinator may open first, so wait for the next epoch
+    expect(holdDecision({ minOthers: 2, submitByEpochEnd: false }, k5, 1040, 900)).toEqual({ action: "wait", count: 5, opensAt: 1060 });
+    expect(holdDecision({ minOthers: 2, submitByEpochEnd: true }, k5, 1100, 900)).toEqual({ action: "wait", count: 5, opensAt: 1100 });
+    // below K: the epoch opens at T_MAX, so a release within T_MAX − 30 s still lands in it
+    const two = { ...k5, count: 2 };
+    expect(holdDecision({ minOthers: 2, submitByEpochEnd: false }, two, 1269, 900)).toEqual({ action: "release" });
+    expect(holdDecision({ minOthers: 2, submitByEpochEnd: false }, two, 1270, 900)).toEqual({ action: "wait", count: 2, opensAt: 1300 });
+    // submitByEpochEnd with too few others: released at T_MAX − 60 s, but not once the landing would be too late
+    expect(holdDecision({ minOthers: 4, submitByEpochEnd: true }, two, 1240, 900)).toEqual({ action: "release" });
+    expect(holdDecision({ minOthers: 4, submitByEpochEnd: true }, two, 1275, 900)).toEqual({ action: "wait", count: 2, opensAt: 1300 });
   });
 
   it("jitter is independent per release and inside [0, 20 s)", () => {
@@ -422,9 +438,9 @@ describe("per-direction hold lifecycle", () => {
     expect(m.add(rec(COIN, 0, 2, false, "1"))).toMatchObject({ ok: false });
 
     // BUY has 2 others, SELL 1, HARVEST of COIN2 is collecting with 1 (minOthers 5)
-    st.states.set(stateKey(COIN, 0), { seq: 0, status: 1, count: 2, startedAt: st.now - 100, tMax: 300 });
-    st.states.set(stateKey(COIN, 1), { seq: 0, status: 1, count: 1, startedAt: st.now - 100, tMax: 300 });
-    st.states.set(stateKey(COIN2, 2), { seq: 3, status: 1, count: 1, startedAt: st.now - 10, tMax: 300 });
+    st.states.set(stateKey(COIN, 0), { seq: 0, status: 1, count: 2, startedAt: st.now - 100, tMin: 60, tMax: 300, k: 5 });
+    st.states.set(stateKey(COIN, 1), { seq: 0, status: 1, count: 1, startedAt: st.now - 100, tMin: 60, tMax: 300, k: 5 });
+    st.states.set(stateKey(COIN2, 2), { seq: 3, status: 1, count: 1, startedAt: st.now - 10, tMin: 60, tMax: 300, k: 5 });
     expect(await m.tick()).toEqual({ released: 2, dropped: 0, waiting: 2 });
     // both BUY holds were scheduled separately, each with its own delay (rng 0.1 and 0.9), never as a burst
     expect(scheduled.map((s) => s.ms)).toEqual([2_000, 18_000]);
@@ -440,7 +456,7 @@ describe("per-direction hold lifecycle", () => {
     await vi.waitFor(() => expect(m.status(buy.ticket)).toEqual({ status: "submitted", hash: HASH }));
     expect(m.holdsNullifier("1")).toBe(false);
 
-    // SELL reaches its end (startedAt + T_MAX − 30 s) with 1 other < 2 and no submitByEpochEnd → dropped
+    // SELL reaches its end (startedAt + T_MAX − 60 s) with 1 other < 2 and no submitByEpochEnd → dropped
     st.now += 175;
     expect(await m.tick()).toMatchObject({ dropped: 1 });
     expect(m.status(sell.ticket)).toMatchObject({ status: "dropped", reason: expect.stringMatching(/fewer than 2/) });
@@ -454,14 +470,14 @@ describe("per-direction hold lifecycle", () => {
     const { m, scheduled } = manager(st, submit);
     const a = m.add(rec(COIN, 0, 1, false, "7"));
     if (!a.ok) throw new Error("add");
-    st.states.set(stateKey(COIN, 0), { seq: 0, status: 1, count: 1, startedAt: st.now, tMax: 300 });
+    st.states.set(stateKey(COIN, 0), { seq: 0, status: 1, count: 1, startedAt: st.now, tMin: 60, tMax: 300, k: 5 });
     await m.tick();
     expect(scheduled).toHaveLength(1);
-    st.states.set(stateKey(COIN, 0), { seq: 1, status: 0, count: 0, startedAt: 0, tMax: 300 }); // opened meanwhile
+    st.states.set(stateKey(COIN, 0), { seq: 1, status: 0, count: 0, startedAt: 0, tMin: 60, tMax: 300, k: 5 }); // opened meanwhile
     scheduled[0].fn();
     await vi.waitFor(() => expect(m.status(a.ticket)).toEqual({ status: "held", count: undefined, opensAt: undefined }));
     expect(submit).not.toHaveBeenCalled();
-    st.states.set(stateKey(COIN, 0), { seq: 1, status: 1, count: 3, startedAt: st.now, tMax: 300 });
+    st.states.set(stateKey(COIN, 0), { seq: 1, status: 1, count: 3, startedAt: st.now, tMin: 60, tMax: 300, k: 5 });
     await m.tick();
     scheduled[1].fn();
     await vi.waitFor(() => expect(m.status(a.ticket)).toMatchObject({ status: "dropped", reason: "reverted: UnknownRoot" }));
@@ -507,7 +523,7 @@ describe("relayer submit path", () => {
     const ticket = (held.body as { ticket: string }).ticket;
     expect(chain.sent).toHaveLength(1);
     expect(r.heldStatus(ticket).body).toEqual({ status: "held" });
-    st.states.set(stateKey(COIN, 1), { seq: 0, status: 1, count: 2, startedAt: st.now, tMax: 300 });
+    st.states.set(stateKey(COIN, 1), { seq: 0, status: 1, count: 2, startedAt: st.now, tMin: 60, tMax: 300, k: 5 });
     await r.pollHeld();
     expect(scheduled).toHaveLength(1);
     scheduled[0]();
@@ -830,7 +846,7 @@ describe("implementation review K4: release jitter from a CSPRNG", () => {
     const spy = vi.spyOn(Math, "random");
     const delays: number[] = [];
     const st = baseState();
-    st.states.set(stateKey(COIN, 0), { seq: 0, status: 1, count: 5, startedAt: st.now - 10, tMax: 300 });
+    st.states.set(stateKey(COIN, 0), { seq: 0, status: 1, count: 5, startedAt: st.now - 10, tMin: 60, tMax: 300, k: 5 });
     const m = new HeldManager({
       store: new HeldStore(null, new HeldCipher(HELD_KEY)),
       readStates: async (keys) => ({ now: st.now, states: new Map(keys.map((k) => [stateKey(k.coin, k.dir), st.states.get(stateKey(k.coin, k.dir))!])) }),

@@ -29,8 +29,8 @@ interface IVerifier5 {
         returns (bool);
 }
 
-interface IVerifier7 {
-    function verifyProof(uint256[2] calldata a, uint256[2][2] calldata b, uint256[2] calldata c, uint256[7] calldata pubSignals)
+interface IVerifier8 {
+    function verifyProof(uint256[2] calldata a, uint256[2][2] calldata b, uint256[2] calldata c, uint256[8] calldata pubSignals)
         external
         view
         returns (bool);

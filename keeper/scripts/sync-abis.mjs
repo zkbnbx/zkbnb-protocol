@@ -18,6 +18,7 @@ export const NAMES = [
   ["DarkCurve", "darkCurveAbi"],
   ["Planter", "planterAbi"],
   ["CreatorStub", "creatorStubAbi"],
+  ["RewardPoster", "rewardPosterAbi"],
 ];
 
 /** Drops compiler-only fields (internalType) so the file stays small and stable. */

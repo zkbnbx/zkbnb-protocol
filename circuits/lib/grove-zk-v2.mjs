@@ -1300,10 +1300,14 @@ export async function prepareClaim({ tree, root, intent, result, outputs = [], e
 }
 
 /**
- * epochOpen.circom witness + proof for DarkCurve.openEpoch (one direction).
- * @param {{ecSk: bigint, ecPk?: [bigint, bigint], c1: [bigint, bigint], c2: [bigint, bigint], u: bigint, wasm, zkey}} o
+ * epochOpen.circom witness + proof for DarkCurve.openEpoch (one direction). `minOut` is the slippage floor the open
+ * will be sent with; it is a public signal, so the proof only verifies with that exact value (review N2).
+ * @param {{ecSk: bigint, ecPk?: [bigint, bigint], c1: [bigint, bigint], c2: [bigint, bigint], u: bigint, minOut: bigint, wasm, zkey}} o
  */
-export async function prepareOpen({ ecSk, ecPk, c1, c2, u, wasm, zkey }) {
+export async function prepareOpen({ ecSk, ecPk, c1, c2, u, minOut, wasm, zkey }) {
+  if (minOut === undefined || minOut === null) throw new Error("minOut is required (it is bound into the open proof)");
+  const mo = BigInt(minOut);
+  if (mo < 0n || mo >= 1n << 128n) throw new Error("minOut out of range (< 2^128)");
   const sk = BigInt(ecSk);
   const pk = ecPk ? [BigInt(ecPk[0]), BigInt(ecPk[1])] : elgamalPublicKey(sk);
   if (!babyEq(pk, elgamalPublicKey(sk))) throw new Error("ecPk does not match ecSk");
@@ -1311,9 +1315,9 @@ export async function prepareOpen({ ecSk, ecPk, c1, c2, u, wasm, zkey }) {
   if (uu < 0n || uu >= 1n << BigInt(SUM_BITS)) throw new Error("u out of range (< 2^40)");
   const M = elgamalDecryptPoint({ c1, c2 }, sk);
   if (!babyEq(M, babyMul(uu, BASE8))) throw new Error("ciphertext does not decrypt to u");
-  const input = { ecPk: pk.map(s), C1: c1.map(s), C2: c2.map(s), u: s(uu), ecSk: s(sk) };
+  const input = { ecPk: pk.map(s), C1: c1.map(s), C2: c2.map(s), u: s(uu), minOut: s(mo), ecSk: s(sk) };
   const { proof: snarkProof, publicSignals } = await groth16.fullProve(input, artifact(wasm), artifact(zkey));
-  const pub = { ecPk: pk, c1: [BigInt(c1[0]), BigInt(c1[1])], c2: [BigInt(c2[0]), BigInt(c2[1])], u: uu };
+  const pub = { ecPk: pk, c1: [BigInt(c1[0]), BigInt(c1[1])], c2: [BigInt(c2[0]), BigInt(c2[1])], u: uu, minOut: mo };
   return { proof: proofToSolidity(snarkProof), pub, publicSignals, snarkProof, witness: input };
 }
 

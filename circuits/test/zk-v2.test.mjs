@@ -345,15 +345,22 @@ test("BSGS: 2^24 truncated table solves Σu < 2^40 in < 5 s (BSGS_FULL=1)", { sk
 
 // ----------------------------------------------------------------- epochOpen
 
-test("epochOpen: correct u verifies, wrong u fails, signal order", async () => {
+test("epochOpen: correct u verifies, wrong u fails, signal order, minOut bound", async () => {
   const { sk, pk } = elgamalKeypair(label("coordinator") % BABYJUB.SUBORDER);
   const alice = keysOf("alice");
   const cts = [5000n, 6000n, 7000n].map((u, i) => elgamalEncrypt(u, pk, elgamalK(alice.ask, BigInt(i + 1))));
   const sum = elgamalSum(cts);
-  const r = await prepareOpen({ ecSk: sk, c1: sum.c1, c2: sum.c2, u: 18000n, ...art("epochOpen") });
-  assert.deepEqual(r.publicSignals.map(BigInt), [pk[0], pk[1], sum.c1[0], sum.c1[1], sum.c2[0], sum.c2[1], 18000n]);
+  const minOut = 123_456_789n;
+  const r = await prepareOpen({ ecSk: sk, c1: sum.c1, c2: sum.c2, u: 18000n, minOut, ...art("epochOpen") });
+  assert.deepEqual(r.publicSignals.map(BigInt), [pk[0], pk[1], sum.c1[0], sum.c1[1], sum.c2[0], sum.c2[1], 18000n, minOut]);
   assert.ok(await verify("epochOpen", r));
-  await assert.rejects(prepareOpen({ ecSk: sk, c1: sum.c1, c2: sum.c2, u: 18001n, ...art("epochOpen") }), /does not decrypt/);
+  // review N2: the same proof with another minOut (a copied open with the floor removed) does not verify
+  for (const other of [0n, minOut - 1n]) {
+    const sig = [...r.publicSignals.slice(0, 7), other.toString()];
+    assert.equal(await groth16.verify(vkey("epochOpen"), sig, r.snarkProof), false, `minOut ${other} must not verify`);
+  }
+  await assert.rejects(prepareOpen({ ecSk: sk, c1: sum.c1, c2: sum.c2, u: 18000n, ...art("epochOpen") }), /minOut is required/);
+  await assert.rejects(prepareOpen({ ecSk: sk, c1: sum.c1, c2: sum.c2, u: 18001n, minOut, ...art("epochOpen") }), /does not decrypt/);
   await expectCircuitReject(groth16.fullProve({ ...r.witness, u: "18001" }, art("epochOpen").wasm, art("epochOpen").zkey));
   await expectCircuitReject(groth16.fullProve({ ...r.witness, ecSk: (sk + 1n).toString() }, art("epochOpen").wasm, art("epochOpen").zkey));
 });
@@ -417,7 +424,7 @@ test("intent (BUY, SELL) and claim (pro-rata, refund, voided): proofs verify; bo
   await expectCircuitReject(groth16.fullProve({ ...buy.witness, u: "4999" }, art("intent").wasm, art("intent").zkey));
 
   // open the BUY direction (one intent): result leaf (B, tokensOut, refund, rpt)
-  const open = await prepareOpen({ ecSk: coord.sk, ecPk: coord.pk, c1: buy.pub.c1, c2: buy.pub.c2, u: 5000n, ...art("epochOpen") });
+  const open = await prepareOpen({ ecSk: coord.sk, ecPk: coord.pk, c1: buy.pub.c1, c2: buy.pub.c2, u: 5000n, minOut: 1n, ...art("epochOpen") });
   assert.ok(await verify("epochOpen", open));
   const buyTotals = { totalIn: 5000n * UNIT_BNB, totalOut: 123_456_789_012_345_678_901_234n, totalRefund: 10n ** 15n, rptAtSettle: accRpt };
   const sellTotals = { totalIn: 50_000n * UNIT_TOKEN, totalOut: 3n * 10n ** 16n, totalRefund: 0n, rptAtSettle: accRpt };

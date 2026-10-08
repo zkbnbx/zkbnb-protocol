@@ -9,7 +9,7 @@ import {PrivacyBase} from "./GrovePool.t.sol";
 import {GrovePool} from "../src/GrovePool.sol";
 import {DarkCurve} from "../src/DarkCurve.sol";
 import {PayoutMode} from "../src/interfaces/IGrove.sol";
-import {IVerifier17, IVerifier5, IVerifier7} from "../src/interfaces/IGroveV2.sol";
+import {IVerifier17, IVerifier5, IVerifier8} from "../src/interfaces/IGroveV2.sol";
 import {GroveConstants as C} from "../src/libraries/GroveConstants.sol";
 import {BabyJubjub as B} from "../src/libraries/BabyJubjub.sol";
 
@@ -45,7 +45,7 @@ contract DarkCurveTest is PrivacyBase {
     function _deployDarkCurve() internal override returns (address) {
         (uint256 x, uint256 y) = _affine(B.mul(B.base8(), EC_SK));
         ecPk = [x, y];
-        dc = new DarkCurve(address(gp), address(roots), treasury, address(v17), address(v5), address(v7), ecPk, owner);
+        dc = new DarkCurve(address(gp), address(roots), treasury, address(v17), address(v5), address(v8), ecPk, owner);
         return address(dc);
     }
 
@@ -323,10 +323,10 @@ contract DarkCurveTest is PrivacyBase {
         sumC1[1] = B.fromAffine(s.c1[0], s.c1[1]);
         sumC2[1] = B.fromAffine(s.c2[0], s.c2[1]);
 
-        // open: [ecPkX, ecPkY, c1X, c1Y, c2X, c2Y, u]
+        // open: [ecPkX, ecPkY, c1X, c1Y, c2X, c2Y, u, minOut] (_open sends minOut 0)
         vm.warp(block.timestamp + C.T_MAX);
-        uint256[7] memory osig = [ecPk[0], ecPk[1], s.c1[0], s.c1[1], s.c2[0], s.c2[1], uint256(60_000)];
-        vm.expectCall(address(v7), abi.encodeCall(IVerifier7.verifyProof, (p.a, p.b, p.c, osig)));
+        uint256[8] memory osig = [ecPk[0], ecPk[1], s.c1[0], s.c1[1], s.c2[0], s.c2[1], uint256(60_000), 0];
+        vm.expectCall(address(v8), abi.encodeCall(IVerifier8.verifyProof, (p.a, p.b, p.c, osig)));
         _open(2);
 
         // claim: [root, nullifier, out0, out1, extDataHash]
@@ -745,14 +745,15 @@ contract DarkCurveTest is PrivacyBase {
         uint32[3] memory seq;
         uint256[3] memory u = [sumU[0], 0, 0];
         GrovePool.Proof[3] memory proofs = [_proof(), _proof(), _proof()];
-        uint256[3] memory minOut;
-        uint256[7] memory osig;
+        uint256[3] memory minOut = [uint256(1), 0, 0];
+        uint256[8] memory osig;
         (osig[2], osig[3]) = _affine(sumC1[0]);
         (osig[4], osig[5]) = _affine(sumC2[0]);
         osig[0] = ecPk[0];
         osig[1] = ecPk[1];
         osig[6] = sumU[0];
-        vm.expectCall(address(v7), abi.encodeCall(IVerifier7.verifyProof, (proofs[0].a, proofs[0].b, proofs[0].c, osig)));
+        osig[7] = 1; // the direction's minOut is the last signal (review N2)
+        vm.expectCall(address(v8), abi.encodeCall(IVerifier8.verifyProof, (proofs[0].a, proofs[0].b, proofs[0].c, osig)));
         dc.openEpoch(coin, 1, seq, u, proofs, minOut);
     }
 
@@ -805,7 +806,7 @@ contract DarkCurveTest is PrivacyBase {
         vm.expectRevert(DarkCurve.WrongKey.selector);
         dc.setCoordinatorKey(mixed, at);
         vm.expectRevert(DarkCurve.WrongKey.selector);
-        new DarkCurve(address(gp), address(roots), treasury, address(v17), address(v5), address(v7), [uint256(0), 1], owner);
+        new DarkCurve(address(gp), address(roots), treasury, address(v17), address(v5), address(v8), [uint256(0), 1], owner);
         // a subgroup key (sk * B8) is accepted
         (uint256 nx, uint256 ny) = _affine(B.mul(B.base8(), 777));
         dc.setCoordinatorKey([nx, ny], at);

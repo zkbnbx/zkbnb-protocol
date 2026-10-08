@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Stage-2 circuits: compile (--O2) + Groth16 DEV setup + verification keys + Solidity verifiers.
 # Run from circuits/:  npm run build:v2   (bash scripts/setup-v2.sh)
+# Rebuild a subset, keeping the other circuits' keys:  CIRCUITS="claim epochOpen" bash scripts/setup-v2.sh
+# (the log gets a new section appended; CEREMONY-HASHES-v2.txt is rewritten for all four circuits)
 #
 # Produces, per circuit <name> in {transfer, intent, claim, epochOpen}:
 #   build/<name>.r1cs  build/<name>.wasm  build/<name>.zkey  build/verification_key_<name>.json
@@ -16,7 +18,8 @@ PTAU_URL=https://circom.info/powersOfTau28_hez_final_16.ptau
 LOG=build/setup-v2.log
 HASHES=build/CEREMONY-HASHES-v2.txt
 VERIFIERS_DIR=../contracts/src/verifiers
-CIRCUITS="transfer intent claim epochOpen"
+ALL_CIRCUITS="transfer intent claim epochOpen"
+CIRCUITS="${CIRCUITS:-$ALL_CIRCUITS}"
 OPT_FLAG="--O2"
 CIRCOM_VERSION="$(node -p "require('./node_modules/circom2/package.json').version")"
 SNARKJS_VERSION="$(node -p "require('./node_modules/snarkjs/package.json').version")"
@@ -29,12 +32,13 @@ solname() {  # transfer -> Transfer, epochOpen -> Open
   esac
 }
 
+if [ "$CIRCUITS" = "$ALL_CIRCUITS" ]; then : > "$LOG"; else echo "" >> "$LOG"; echo "##### partial rebuild: $CIRCUITS" >> "$LOG"; fi
 {
   echo "setup-v2 $(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo "circom2 $CIRCOM_VERSION (wasm build)  snarkjs $SNARKJS_VERSION  node $(node --version)"
   echo "compile flags: $OPT_FLAG --r1cs --wasm --sym"
   echo "powers of tau: $PTAU_URL (Hermez, 2^16)"
-} > "$LOG"
+} >> "$LOG"
 
 # ---- phase 1: Hermez powers of tau 2^16 (~72 MB); dev fallback if the download fails
 if [ ! -f "$PTAU" ] || [ "$(stat -c %s "$PTAU")" -lt 50000000 ]; then
@@ -55,10 +59,14 @@ for name in $CIRCUITS; do
   echo "=== $name"
   echo "" >> "$LOG"
   echo "=== $name ($name.circom, $OPT_FLAG)" >> "$LOG"
-  rm -f "build/$name.r1cs" "build/$name.sym" "build/${name}_js/$name.wasm"
-  # circom2 (wasm build) sometimes never exits when stdout is not a TTY; bound it and check the outputs instead
-  timeout 900 npx circom2 "$name.circom" $OPT_FLAG --r1cs --wasm --sym -o build < /dev/null 2>&1 \
-    | sed 's/\x1b\[[0-9;]*m//g' | grep -E "constraints|inputs|outputs|wires|labels|template instances|error|Error" | tee -a "$LOG" || true
+  # circom2 (wasm build) hangs if build/<name>_js/ already exists: remove it, not just the wasm
+  rm -rf "build/$name.r1cs" "build/$name.sym" "build/${name}_js"
+  # r1cs/sym and wasm in two runs (smaller blast radius if one hangs),
+  # output to a file (it also never exits when stdout is a pipe), each bounded
+  timeout "${COMPILE_TIMEOUT:-900}" npx circom2 "$name.circom" $OPT_FLAG --r1cs --sym -o build < /dev/null > "build/$name.compile.out" 2>&1 || true
+  timeout "${COMPILE_TIMEOUT:-900}" npx circom2 "$name.circom" $OPT_FLAG --wasm -o build < /dev/null >> "build/$name.compile.out" 2>&1 || true
+  sed 's/\x1b\[[0-9;]*m//g' "build/$name.compile.out" | grep -E "constraints|inputs|outputs|wires|labels|template instances|error|Error" | tee -a "$LOG" || true
+  rm -f "build/$name.compile.out"
   test -s "build/$name.r1cs" && test -s "build/${name}_js/$name.wasm" || { echo "circom compile failed: $name"; exit 1; }
   # PoT 16 hard limit: 65,536 constraints
   TOTAL=$(npx snarkjs r1cs info "build/$name.r1cs" 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' | grep -i "# of Constraints" | grep -oE "[0-9]+$")
@@ -86,7 +94,7 @@ done
 # ---- hashes of every artifact (the dev-key set; the ceremony rewrites this file)
 {
   echo "# DEV KEYS from setup-v2.sh $(date -u +%Y-%m-%dT%H:%M:%SZ) - not a ceremony. See CEREMONY-v2.md."
-  for name in $CIRCUITS; do
+  for name in $ALL_CIRCUITS; do
     sha256sum "build/$name.r1cs" "build/$name.wasm" "build/$name.zkey" "build/verification_key_$name.json" "$VERIFIERS_DIR/Groth16Verifier$(solname "$name").sol"
   done
 } > "$HASHES"

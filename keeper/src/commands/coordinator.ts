@@ -141,7 +141,7 @@ export interface CoordinatorDeps {
   keys: Map<string, CoordinatorKey>;
   /** the sum from M = sum * B8, or null */
   solve: (m: Point) => bigint | null;
-  prove: (args: { ecSk: bigint; sum: SummedCiphertext; u: bigint }) => Promise<SolidityProof>;
+  prove: (args: { ecSk: bigint; sum: SummedCiphertext; u: bigint; minOut: bigint }) => Promise<SolidityProof>;
   quoter: Quoter;
   send: SendFn;
   /** per-(coin, dir, seq) consecutive failures, kept across passes by the caller */
@@ -331,7 +331,8 @@ export async function coordinator(ctx: Ctx, deps: CoordinatorDeps): Promise<Coor
           }
           args.u[d] = u;
           args.minOut[d] = applySlippage(quote, deps.pcfg.slippageBps);
-          args.proofs[d] = await deps.prove({ ecSk: key.sk, sum, u });
+          // the floor is a public signal of the open proof: a copied open cannot lower it (review N2)
+          args.proofs[d] = await deps.prove({ ecSk: key.sk, sum, u, minOut: args.minOut[d] });
           ready.push(d);
           log.info("direction ready", { coin, dir: DIR_NAME[d], seq: seq[d], count: ep.count, u: redactU(u) });
         }
@@ -463,6 +464,6 @@ export async function runCoordinator(ctx: Ctx, rt: CoordinatorRuntime, env: Node
     if (!rt.table) rt.table = loadOrBuildTable(pcfg.bsgsPath, pcfg.bsgsBits, { log: (msg, meta) => log.info(msg, meta) });
     return bsgsSolve(m, rt.table);
   };
-  const prove = async (a: { ecSk: bigint; sum: SummedCiphertext; u: bigint }) => (await proveOpen(a)).proof;
+  const prove = async (a: { ecSk: bigint; sum: SummedCiphertext; u: bigint; minOut: bigint }) => (await proveOpen(a)).proof;
   return coordinator(ctx, { keys, solve, prove, quoter: chainQuoter(ctx), send: sendTx, failures: rt.failures, pcfg, sendCtx: rt.sendCtx });
 }

@@ -192,6 +192,8 @@ describe("coordinator pass", () => {
     ]);
     expect(minOut).toEqual([applySlippage(sumBuy * UNIT_BNB * 2n, 300), applySlippage(sumSell * UNIT_TOKEN * 2n, 300), 0n]);
     expect(prove).toHaveBeenCalledTimes(2);
+    // review N2: each direction's proof is made for exactly the minOut the open is sent with
+    expect((prove.mock.calls as unknown as [{ minOut: bigint }][]).map(([a]) => a.minOut)).toEqual([minOut[0], minOut[1]]);
     expect(res.opened).toEqual([{ coin: COIN_A, dirMask: 3, hash: "0xhash1" }]);
 
     // NO PER-INTENT DECRYPTION: decrypt ran exactly once per opened direction, on the summed ciphertext, and

@@ -55,21 +55,23 @@ export function proofToSolidity(p: Groth16Proof): SolidityProof {
   };
 }
 
-/** The public-signal vector the contract will verify against. */
-export function openPublicSignals(ecPk: Point, sum: Pick<SummedCiphertext, "c1" | "c2">, u: bigint): string[] {
-  return [ecPk[0], ecPk[1], sum.c1[0], sum.c1[1], sum.c2[0], sum.c2[1], u].map((x) => BigInt(x).toString());
+/** The public-signal vector the contract will verify against. minOut is bound into the proof (review N2). */
+export function openPublicSignals(ecPk: Point, sum: Pick<SummedCiphertext, "c1" | "c2">, u: bigint, minOut: bigint): string[] {
+  return [ecPk[0], ecPk[1], sum.c1[0], sum.c1[1], sum.c2[0], sum.c2[1], u, minOut].map((x) => BigInt(x).toString());
 }
 
 /**
- * Proves that the summed ciphertext decrypts to u under ecSk. Checks M == u·B8 first (cheap) so a wrong u never
- * costs a proving run, and checks that snarkjs returned the public signals in the frozen order.
+ * Proves that the summed ciphertext decrypts to u under ecSk, bound to the `minOut` the open will be sent with (a
+ * copied openEpoch cannot lower it). Checks M == u·B8 first (cheap) so a wrong u never costs a proving run, and
+ * checks that snarkjs returned the public signals in the frozen order.
  */
 export async function proveOpen(
-  args: { ecSk: bigint; sum: SummedCiphertext; u: bigint },
+  args: { ecSk: bigint; sum: SummedCiphertext; u: bigint; minOut: bigint },
   artifacts: OpenArtifacts = openArtifacts(),
 ): Promise<OpenProof> {
-  const { ecSk, sum, u } = args;
+  const { ecSk, sum, u, minOut } = args;
   if (u < 0n || u >= 1n << BigInt(SUM_BITS)) throw new Error("u out of range (< 2^40)");
+  if (minOut < 0n || minOut >= 1n << 128n) throw new Error("minOut out of range (< 2^128)");
   const ecPk = elgamal.publicKey(ecSk);
   if (!eq(elgamal.decrypt(sum, ecSk), mul(u, BASE8))) throw new Error("the summed ciphertext does not decrypt to u");
   const input = {
@@ -77,13 +79,14 @@ export async function proveOpen(
     C1: sum.c1.map(String),
     C2: sum.c2.map(String),
     u: u.toString(),
+    minOut: minOut.toString(),
     ecSk: ecSk.toString(),
   };
   const t0 = Date.now();
   const { proof, publicSignals } = await groth16.fullProve(input, artifacts.wasm, artifacts.zkey);
-  const expected = openPublicSignals(ecPk, sum, u);
-  if (publicSignals.length !== 7 || publicSignals.some((s, i) => s !== expected[i])) {
-    throw new Error("epochOpen public signals are not in the frozen order [ecPkX, ecPkY, c1X, c1Y, c2X, c2Y, u]");
+  const expected = openPublicSignals(ecPk, sum, u, minOut);
+  if (publicSignals.length !== 8 || publicSignals.some((s, i) => s !== expected[i])) {
+    throw new Error("epochOpen public signals are not in the frozen order [ecPkX, ecPkY, c1X, c1Y, c2X, c2Y, u, minOut]");
   }
   return { proof: proofToSolidity(proof), publicSignals, snarkProof: proof, ms: Date.now() - t0 };
 }

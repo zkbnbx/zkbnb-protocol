@@ -21,6 +21,7 @@ import {
   RELAY_GAS_UNITS_VAULT_DEFAULT,
   RELAY_MARGIN_BPS_DEFAULT,
   RELEASE_JITTER_MS,
+  RELEASE_LAND_SEC,
   VAULT_CALL_MAX_BYTES,
   ZERO_ADDRESS,
   type ClaimExt,
@@ -272,33 +273,45 @@ export function recoverPolicy(order: OrderStruct, chainId: number, expectedChain
 
 // ------------------------------------------------------------------------------------------------- holds
 
-/** The watched epoch of a held intent: DarkCurve.cur[coin][dir] and its Epoch, plus params.tMax. */
+/** The watched epoch of a held intent: DarkCurve.cur[coin][dir] and its Epoch, plus params tMin, tMax and k. */
 export interface HoldEpochState {
   seq: number;
   status: number;
   count: number;
   startedAt: number;
+  tMin: number;
   tMax: number;
+  k: number;
 }
 
 export type HoldDecision = { action: "release" } | { action: "wait"; count: number; opensAt?: number } | { action: "drop"; reason: string };
 
 /**
- * Spec §5.3 "Held intents": submit when `count ≥ minOthers`, or at `startedAt + T_MAX − 30 s` when
- * `submitByEpochEnd`, else drop at that moment. While no epoch of the direction is collecting, keep waiting (an
- * epoch that opened early, before the deadline, is simply replaced by the next one). Expired after 14 days.
+ * Spec §5.3 "Held intents": submit when `count ≥ minOthers`, or at `startedAt + T_MAX − 60 s` when
+ * `submitByEpochEnd` (if the epoch still has too few others), else drop at that moment. While no epoch of the direction is collecting, keep waiting.
+ * Expired after 14 days.
+ *
+ * Review N8: a release takes up to RELEASE_LAND_SEC to land. If the watched epoch can become openable within that
+ * window (T_MAX reached, or T_MIN reached with K intents), the intent could land after the open, start the next
+ * epoch alone and, with N = 1, have its amount opened in public. Such an epoch is never released into: the intent
+ * waits for the next one.
  */
 export function holdDecision(hold: Hold, st: HoldEpochState, now: number, createdAt: number): HoldDecision {
   const collecting = st.status === 1 && st.count > 0;
-  if (collecting && st.count >= hold.minOthers) return { action: "release" };
   if (collecting) {
-    const deadline = st.startedAt + st.tMax - EPOCH_END_LEAD_SEC;
-    if (now >= deadline) {
-      return hold.submitByEpochEnd ? { action: "release" } : { action: "drop", reason: `the epoch reached its end with ${st.count} other intent(s), fewer than ${hold.minOthers}` };
+    const landAge = now + RELEASE_LAND_SEC - st.startedAt;
+    const opensBeforeLanding = landAge >= st.tMax || (landAge >= st.tMin && st.count >= st.k);
+    if (!opensBeforeLanding && st.count >= hold.minOthers) return { action: "release" };
+    const pastDeadline = now >= st.startedAt + st.tMax - RELEASE_LAND_SEC - EPOCH_END_LEAD_SEC;
+    if (pastDeadline && st.count < hold.minOthers) {
+      if (!hold.submitByEpochEnd) return { action: "drop", reason: `the epoch reached its end with ${st.count} other intent(s), fewer than ${hold.minOthers}` };
+      if (!opensBeforeLanding) return { action: "release" };
     }
+    // otherwise (too few others yet, or the epoch may open before a release lands): wait, if need be for the next epoch
   }
   if (now >= createdAt + HOLD_MAX_SEC) return { action: "drop", reason: "held for 14 days without release" };
-  return collecting ? { action: "wait", count: st.count, opensAt: st.startedAt + st.tMax } : { action: "wait", count: 0 };
+  if (!collecting) return { action: "wait", count: 0 };
+  return { action: "wait", count: st.count, opensAt: st.startedAt + (st.count >= st.k ? Math.max(st.tMin, now - st.startedAt) : st.tMax) };
 }
 
 /** `v1migrate` with notBefore: release once it has passed; expire after 14 days held. */

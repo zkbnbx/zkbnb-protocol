@@ -111,10 +111,12 @@ template Claim(levels) {
     for (var l = 0; l < levels; l++) resultTree.pathElements[l] <== resultPathElements[l];
     resultTree.root === root;
 
-    // ---- pro-rata shares with floor division (field-wrap guard: a < 2^96, the rest < 2^128)
+    // ---- pro-rata shares with floor division (field-wrap guard: a < 2^96, totalIn < 2^100, the rest < 2^128,
+    //      so a*totalOut, q*totalIn and qr*totalIn all stay below 2^228 < p). The contract writes
+    //      totalIn <= MAX_U_SUM * UNIT_TOKEN < 2^100 (or 1 for a voided epoch).
     component aBits = Num2Bits(96);
     aBits.in <== a;
-    component inBits = Num2Bits(128);
+    component inBits = Num2Bits(100);
     inBits.in <== totalIn;
     component outBits = Num2Bits(128);
     outBits.in <== totalOut;

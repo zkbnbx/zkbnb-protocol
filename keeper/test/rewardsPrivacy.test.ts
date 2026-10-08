@@ -120,6 +120,33 @@ describe("rewards: privacy stage 2 inclusion rule", () => {
     for (const a of [DARK, PLANTER, STUB]) expect(s.rule.excluded).toContain(a);
     expect(s.rule.excluded).not.toContain(GROVE_POOL);
   });
+
+  it("review N1: with a RewardPoster the run is posted through it, carrying the pool's leaf and proof", async () => {
+    const POSTER = getAddress("0x9057000000000000000000000000000000000001");
+    const dep = { ...liveLike(), chainId: 97, grovePool: GROVE_POOL, darkCurve: DARK, planter: PLANTER, rewardPoster: POSTER, privacyStartBlock: 5 } as Deployments;
+    const { ctx } = makeCtx(dep);
+    expect(await takeSnapshotAndPost(ctx, COIN, parseEther("1"))).toBe(true);
+    const s = snap(dir);
+    const pool = s.leaves.find((l) => l.account === GROVE_POOL)!;
+    const sim = vi.mocked((ctx.pub as unknown as { simulateContract: ReturnType<typeof vi.fn> }).simulateContract);
+    expect(sim).toHaveBeenCalledTimes(1);
+    const call = sim.mock.calls[0][0] as { address: Address; functionName: string; args: unknown[] };
+    expect(call.address).toBe(POSTER);
+    expect(call.functionName).toBe("post");
+    expect(call.args).toEqual([COIN, s.root, parseEther("1"), BigInt(s.holders), expect.any(String), BigInt(pool.amount), pool.proof]);
+  });
+
+  it("review N1: a pool holding less than one token is left out of a RewardPoster run (its pull would revert the post)", async () => {
+    const POSTER = getAddress("0x9057000000000000000000000000000000000001");
+    vi.mocked(balancesAt).mockResolvedValue(new Map<Address, bigint>([[ALICE, parseEther("1000")], [GROVE_POOL, parseEther("0.5")]]));
+    const dep = { ...liveLike(), chainId: 97, grovePool: GROVE_POOL, darkCurve: DARK, planter: PLANTER, rewardPoster: POSTER, privacyStartBlock: 5 } as Deployments;
+    const { ctx } = makeCtx(dep);
+    expect(await takeSnapshotAndPost(ctx, COIN, parseEther("1"))).toBe(true);
+    const s = snap(dir);
+    expect(s.leaves.map((l) => l.account)).toEqual([ALICE]);
+    const sim = vi.mocked((ctx.pub as unknown as { simulateContract: ReturnType<typeof vi.fn> }).simulateContract);
+    expect((sim.mock.calls[0][0] as { args: unknown[] }).args.slice(5)).toEqual([0n, []]);
+  });
 });
 
 describe("deployment file: stage-2 keys are optional", () => {

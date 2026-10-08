@@ -45,8 +45,8 @@ contract MockVerifier5 is MockVerifierBase {
     }
 }
 
-contract MockVerifier7 is MockVerifierBase {
-    function verifyProof(uint256[2] calldata, uint256[2][2] calldata, uint256[2] calldata, uint256[7] calldata)
+contract MockVerifier8 is MockVerifierBase {
+    function verifyProof(uint256[2] calldata, uint256[2][2] calldata, uint256[2] calldata, uint256[8] calldata)
         external
         view
         returns (bool)

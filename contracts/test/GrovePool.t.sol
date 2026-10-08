@@ -15,7 +15,7 @@ import {MerkleTreeWithHistoryV2} from "../src/MerkleTreeWithHistoryV2.sol";
 import {IPoseidonT3, IPoseidonT4, PayoutMode} from "../src/interfaces/IGrove.sol";
 import {IVerifier13} from "../src/interfaces/IGroveV2.sol";
 import {GroveConstants as C} from "../src/libraries/GroveConstants.sol";
-import {MockVerifier13, MockVerifier17, MockVerifier5, MockVerifier7} from "./mocks/MockVerifierN.sol";
+import {MockVerifier13, MockVerifier17, MockVerifier5, MockVerifier8} from "./mocks/MockVerifierN.sol";
 
 /// @notice HolderRewards stand-in: `claim` pays `amount` to the caller, no proofs.
 contract MockHolderRewardsClaim {
@@ -74,7 +74,7 @@ abstract contract PrivacyBase is BaseTest {
     MockVerifier13 internal v13;
     MockVerifier17 internal v17;
     MockVerifier5 internal v5;
-    MockVerifier7 internal v7;
+    MockVerifier8 internal v8;
     MockHolderRewardsClaim internal hrMock;
     GrovePool internal gp;
     Planter internal planter;
@@ -107,7 +107,7 @@ abstract contract PrivacyBase is BaseTest {
         v13 = new MockVerifier13();
         v17 = new MockVerifier17();
         v5 = new MockVerifier5();
-        v7 = new MockVerifier7();
+        v8 = new MockVerifier8();
     }
 
     /// @dev Overridden by DarkCurve tests; the pool tests only need an address that is a module.

@@ -9,7 +9,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {GrovePool} from "./GrovePool.sol";
 import {IPoseidonT3, IPoseidonT4} from "./interfaces/IGrove.sol";
 import {IPancakeRouter02, IPancakePair} from "./interfaces/IPancake.sol";
-import {IVerifier17, IVerifier5, IVerifier7, ILaunchpadPrivacy, IRootsHarvestV2 as IRootsHarvest} from "./interfaces/IGroveV2.sol";
+import {IVerifier17, IVerifier5, IVerifier8, ILaunchpadPrivacy, IRootsHarvestV2 as IRootsHarvest} from "./interfaces/IGroveV2.sol";
 import {GroveConstants as C} from "./libraries/GroveConstants.sol";
 import {BabyJubjub as B} from "./libraries/BabyJubjub.sol";
 
@@ -98,7 +98,7 @@ contract DarkCurve is Ownable2Step, ReentrancyGuard {
     address public immutable treasury;
     IVerifier17 public immutable intentVerifier;
     IVerifier5 public immutable claimVerifier;
-    IVerifier7 public immutable openVerifier;
+    IVerifier8 public immutable openVerifier;
     IPoseidonT3 internal immutable t3;
     IPoseidonT4 internal immutable t4;
 
@@ -173,7 +173,7 @@ contract DarkCurve is Ownable2Step, ReentrancyGuard {
         treasury = treasury_;
         intentVerifier = IVerifier17(intentVerifier_);
         claimVerifier = IVerifier5(claimVerifier_);
-        openVerifier = IVerifier7(openVerifier_);
+        openVerifier = IVerifier8(openVerifier_);
         t3 = GrovePool(payable(pool_)).hasher();
         t4 = GrovePool(payable(pool_)).t4();
         if (!_isValidKey(coordinatorPk)) revert WrongKey();
@@ -299,13 +299,17 @@ contract DarkCurve is Ownable2Step, ReentrancyGuard {
         );
     }
 
-    /// @notice Signals in the frozen order (7): ecPk, C1, C2 (affine), u.
-    function verifyOpen(GrovePool.Proof calldata p, uint256[2] memory ecPk, uint256[2] memory c1, uint256[2] memory c2, uint256 u)
-        public
-        view
-        returns (bool)
-    {
-        return openVerifier.verifyProof(p.a, p.b, p.c, [ecPk[0], ecPk[1], c1[0], c1[1], c2[0], c2[1], u]);
+    /// @notice Signals in the frozen order (8): ecPk, C1, C2 (affine), u, minOut. minOut is bound into the
+    ///         proof so a copied open cannot be replayed with a lower slippage floor (review N2).
+    function verifyOpen(
+        GrovePool.Proof calldata p,
+        uint256[2] memory ecPk,
+        uint256[2] memory c1,
+        uint256[2] memory c2,
+        uint256 u,
+        uint256 minOut
+    ) public view returns (bool) {
+        return openVerifier.verifyProof(p.a, p.b, p.c, [ecPk[0], ecPk[1], c1[0], c1[1], c2[0], c2[1], u, minOut]);
     }
 
     // ------------------------------------------------------------- intents
@@ -387,7 +391,7 @@ contract DarkCurve is Ownable2Step, ReentrancyGuard {
             Epoch storage ep = epochs[_key(coin, d, seq[d])];
             (uint256 c1x, uint256 c1y) = B.toAffine(ep.c1);
             (uint256 c2x, uint256 c2y) = B.toAffine(ep.c2);
-            if (!verifyOpen(proofs[d], keyByGen[ep.keyId], [c1x, c1y], [c2x, c2y], u[d])) revert InvalidProof();
+            if (!verifyOpen(proofs[d], keyByGen[ep.keyId], [c1x, c1y], [c2x, c2y], u[d], minOut[d])) revert InvalidProof();
             if (u[d] == 0 || u[d] >= C.MAX_U_SUM) revert OutOfBounds();
             _checkBand(coin, d, ep);
         }

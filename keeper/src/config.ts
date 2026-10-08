@@ -28,6 +28,8 @@ export interface Deployments {
   grovePool?: Address;
   darkCurve?: Address;
   planter?: Address;
+  /** HolderRewards' keeper contract: posts a run and pulls GrovePool's share in one transaction (review N1) */
+  rewardPoster?: Address;
   /** first block of the stage-2 contracts (log scans start here; falls back to startBlock) */
   privacyStartBlock?: number;
 }
@@ -183,7 +185,7 @@ export function parseDeployments(raw: unknown, expectedChainId?: number): Deploy
   // optional: stage-1 dark pools (the relayer's fill / vault / recover kinds)
   if (o.darkPool !== undefined && o.darkPool !== null) d.darkPool = addr("darkPool");
   // optional: privacy stage 2 (DeployPrivacy adds these keys; absent on the live chain-56 file today)
-  for (const k of ["grovePool", "darkCurve", "planter"] as const) {
+  for (const k of ["grovePool", "darkCurve", "planter", "rewardPoster"] as const) {
     if (o[k] !== undefined && o[k] !== null) d[k] = addr(k);
   }
   if (o.privacyStartBlock !== undefined && o.privacyStartBlock !== null) {

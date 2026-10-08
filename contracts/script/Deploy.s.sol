@@ -131,10 +131,13 @@ abstract contract DeployBase is Script, PrivacyDeployBase {
                     treasury: treasury,
                     coordinatorPk: _coordinatorPk(true),
                     claimBudget: _claimBudgetWei(),
+                    rewardOperator: keeper,
                     deployer: deployer,
                     owner: owner
                 })
             );
+            // review N1: reward runs are posted through the RewardPoster (the keeper wallet is its operator)
+            holderRewards.setKeeper(d.privacy.rewardPoster);
         }
 
         if (flapToken != address(0)) {

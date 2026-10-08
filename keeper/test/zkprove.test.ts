@@ -43,15 +43,18 @@ describe("zkprove: epochOpen", () => {
       );
       expect(recomputed.c1).toEqual(sum.c1);
 
-      const r = await proveOpen({ ecSk, sum, u }, openArtifacts(art));
+      const minOut = BigInt(openBuy.pub.minOut);
+      const r = await proveOpen({ ecSk, sum, u, minOut }, openArtifacts(art));
       const ecPk = elgamal.publicKey(ecSk);
-      expect(r.publicSignals).toEqual(openPublicSignals(ecPk, sum, u));
-      // [ecPkX, ecPkY, c1X, c1Y, c2X, c2Y, u] as the contract fixture records them
-      expect(r.publicSignals).toEqual([...openBuy.pub.ecPk, ...openBuy.pub.c1, ...openBuy.pub.c2, openBuy.pub.u].map(String));
+      expect(r.publicSignals).toEqual(openPublicSignals(ecPk, sum, u, minOut));
+      // [ecPkX, ecPkY, c1X, c1Y, c2X, c2Y, u, minOut] as the contract fixture records them
+      expect(r.publicSignals).toEqual([...openBuy.pub.ecPk, ...openBuy.pub.c1, ...openBuy.pub.c2, openBuy.pub.u, openBuy.pub.minOut].map(String));
       expect(await verifyOpen(art.vkey, r.publicSignals, r.snarkProof)).toBe(true);
       // a different u does not verify with this proof
-      const tampered = [...r.publicSignals.slice(0, 6), (u + 1n).toString()];
+      const tampered = [...r.publicSignals.slice(0, 6), (u + 1n).toString(), minOut.toString()];
       expect(await verifyOpen(art.vkey, tampered, r.snarkProof)).toBe(false);
+      // review N2: nor does a copy with the slippage floor removed
+      expect(await verifyOpen(art.vkey, [...r.publicSignals.slice(0, 7), "0"], r.snarkProof)).toBe(false);
       // Solidity layout: b coordinates swapped
       expect(r.proof.b[0][0]).toBe(BigInt(r.snarkProof.pi_b[0][1]));
       console.log(`epochOpen fullProve: ${r.ms} ms`);
@@ -61,7 +64,7 @@ describe("zkprove: epochOpen", () => {
 
   it("refuses to prove a wrong u (checked before proving)", async () => {
     const sum = elgamal.onChainSum(big(openBuy.sumExtended.c1), big(openBuy.sumExtended.c2), openBuy.ciphertexts.length);
-    await expect(proveOpen({ ecSk: BigInt(openBuy.ecSk), sum, u: BigInt(openBuy.u) + 1n }, { wasm: art.wasm, zkey: art.zkey })).rejects.toThrow(
+    await expect(proveOpen({ ecSk: BigInt(openBuy.ecSk), sum, u: BigInt(openBuy.u) + 1n, minOut: 1n }, { wasm: art.wasm, zkey: art.zkey })).rejects.toThrow(
       /does not decrypt to u/,
     );
   });

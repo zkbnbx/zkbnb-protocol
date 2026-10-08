@@ -273,13 +273,15 @@ const extra = [6000n, 7000n].map((u, i) => elgamalEncrypt(u, coord.pk, elgamalK(
 const buySum = elgamalSum([buy.r.pub, ...extra]);
 const buyU = 18_000n;
 {
-  const r = await prepareOpen({ ecSk: coord.sk, ecPk: coord.pk, c1: buySum.c1, c2: buySum.c2, u: buyU, ...art("epochOpen") });
+  // minOut: the coordinator's slippage floor, bound into the proof (review N2)
+  const r = await prepareOpen({ ecSk: coord.sk, ecPk: coord.pk, c1: buySum.c1, c2: buySum.c2, u: buyU, minOut: 100_000_000_000_000_000_000_000n, ...art("epochOpen") });
   cases.push({ name: "open_buy", kind: "open", proof: proofJson(r.proof), pub: deep(r.pub), ecSk: s(coord.sk), ciphertexts: [buy.r.pub, ...extra].map((c) => ({ c1: c.c1.map(s), c2: c.c2.map(s) })), sumExtended: { c1: deep(toExtended(buySum.c1)), c2: deep(toExtended(buySum.c2)) }, u: s(buyU), dir: DIR.BUY, seq: 0 });
   log("proved open_buy");
 }
 // open_sell (SELL epoch 0, only bob's intent)
 {
-  const r = await prepareOpen({ ecSk: coord.sk, ecPk: coord.pk, c1: sell.r.pub.c1, c2: sell.r.pub.c2, u: 50_000n, ...art("epochOpen") });
+  // minOut = the SELL payout below (sellTotals.totalOut), so PrivacyFixtures can settle this open for real
+  const r = await prepareOpen({ ecSk: coord.sk, ecPk: coord.pk, c1: sell.r.pub.c1, c2: sell.r.pub.c2, u: 50_000n, minOut: 3n * 10n ** 16n, ...art("epochOpen") });
   cases.push({ name: "open_sell", kind: "open", proof: proofJson(r.proof), pub: deep(r.pub), ecSk: s(coord.sk), ciphertexts: [{ c1: sell.r.pub.c1.map(s), c2: sell.r.pub.c2.map(s) }], u: "50000", dir: DIR.SELL, seq: 0 });
   log("proved open_sell");
 }

@@ -5,12 +5,17 @@ import {Script, console2} from "forge-std/Script.sol";
 import {GrovePool} from "../src/GrovePool.sol";
 import {DarkCurve} from "../src/DarkCurve.sol";
 import {Planter} from "../src/Planter.sol";
+import {RewardPoster} from "../src/RewardPoster.sol";
 import {IPoseidonT3, IPoseidonT4} from "../src/interfaces/IGrove.sol";
 import {ILaunchpadPrivacy} from "../src/interfaces/IGroveV2.sol";
 import {Groth16VerifierTransfer} from "../src/verifiers/Groth16VerifierTransfer.sol";
 import {Groth16VerifierIntent} from "../src/verifiers/Groth16VerifierIntent.sol";
 import {Groth16VerifierClaim} from "../src/verifiers/Groth16VerifierClaim.sol";
 import {Groth16VerifierOpen} from "../src/verifiers/Groth16VerifierOpen.sol";
+
+interface IHolderRewardsKeeper {
+    function keeper() external view returns (address);
+}
 
 /// @notice Privacy stage 2 ("Dark Curve") deployment logic, shared by `DeployPrivacy` (adds the stack to a
 ///         chain whose stage-1 stack is deployed) and `Deploy.s.sol._deployStack` (fresh chains 31337 / 97).
@@ -28,6 +33,7 @@ abstract contract PrivacyDeployBase is Script {
         address treasury; // receives INTENT_FEE
         uint256[2] coordinatorPk;
         uint256 claimBudget; // wei sent to DarkCurve.fundClaimBudget
+        address rewardOperator; // RewardPoster.operator: the keeper wallet that posts holder-reward runs
         address deployer; // the broadcaster: owns every module during wiring
         address owner; // offered ownership afterwards when != deployer
     }
@@ -42,6 +48,7 @@ abstract contract PrivacyDeployBase is Script {
         address grovePool;
         address darkCurve;
         address planter;
+        address rewardPoster;
         uint256 privacyStartBlock;
         uint32 claimGas;
         uint256 claimBudget;
@@ -84,6 +91,9 @@ abstract contract PrivacyDeployBase is Script {
         p.grovePool = address(pool);
         p.darkCurve = address(curve);
         p.planter = address(planter);
+        // review N1: HolderRewards' keeper that posts a run and pulls the pool's share in one transaction.
+        // Active once HolderRewards.setKeeper(rewardPoster) is called by HolderRewards' owner.
+        p.rewardPoster = address(new RewardPoster(a.holderRewards, address(pool), a.rewardOperator));
 
         // 5. wiring
         pool.setModules(address(curve), address(planter));
@@ -214,6 +224,7 @@ abstract contract PrivacyDeployBase is Script {
         vm.serializeAddress(obj, "grovePool", p.grovePool);
         vm.serializeAddress(obj, "darkCurve", p.darkCurve);
         vm.serializeAddress(obj, "planter", p.planter);
+        vm.serializeAddress(obj, "rewardPoster", p.rewardPoster);
         vm.serializeAddress(obj, "poseidonT3v2", p.poseidonT3v2);
         vm.serializeAddress(obj, "poseidonT4v2", p.poseidonT4v2);
         vm.serializeAddress(obj, "verifierTransfer", p.verifierTransfer);
@@ -227,6 +238,7 @@ abstract contract PrivacyDeployBase is Script {
         console2.log("grovePool       ", p.grovePool);
         console2.log("darkCurve       ", p.darkCurve);
         console2.log("planter         ", p.planter);
+        console2.log("rewardPoster    ", p.rewardPoster);
         console2.log("poseidonT3v2    ", p.poseidonT3v2);
         console2.log("poseidonT4v2    ", p.poseidonT4v2);
         console2.log("verifierTransfer", p.verifierTransfer);
@@ -293,6 +305,8 @@ contract DeployPrivacy is PrivacyDeployBase {
 
         a.coordinatorPk = _coordinatorPk(false);
         a.claimBudget = _claimBudgetWei();
+        // the poster's operator defaults to the keeper HolderRewards trusts today
+        a.rewardOperator = vm.envOr("KEEPER", IHolderRewardsKeeper(a.holderRewards).keeper());
         a.deployer = msg.sender;
         a.owner = vm.envOr("OWNER", msg.sender);
         if (block.chainid == 56) require(a.owner != msg.sender, "chain 56: OWNER must be the admin Safe");
